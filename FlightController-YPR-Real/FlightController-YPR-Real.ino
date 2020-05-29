@@ -7,19 +7,19 @@
 double eStop = 1;
 double throttle = 1000.0;
 double kr = 0; //40
-double ka = 0; // 4.7
+double kp_pos_z = 0; // 4.7
 
-double kp_roll = 11;
+double kp_roll = 0;//3
 double ki_roll = 0;
-double kd_roll = 0.8;
+double kd_roll = 0;//0.3
 
-double kp_pitch = 11;
+double kp_pitch = 0;//3*1.08
 double ki_pitch = 0;
-double kd_pitch = 0.8;
+double kd_pitch = 0;//0.3
 
-double kp_yaw = 5.0;
+double kp_yaw = 0.001;//1.0; //0.002
 double ki_yaw = 0;
-double kd_yaw = 0.1;
+double kd_yaw = 0;
 
 double kp_vel_z = 0;//1090.0;
 double ki_vel_z = 0;
@@ -49,6 +49,7 @@ double alt_setpoint = 0;
 #define SERVO1_Y 12
 #define SERVO2_X 26
 #define SERVO2_Y 25
+#define VBAT_ADC 37
 #define ADCA 37
 #define ADCB 38
 #define ADCC 34
@@ -139,14 +140,22 @@ double k1 = sqrt((2*k2));
 // Orientation PID calculation variables
 double roll_integral = 0;
 double roll_prev_error = 0;
+double roll_derivative = 0;
 double pitch_integral = 0;
 double pitch_prev_error = 0;
+double pitch_derivative = 0;
 double yaw_integral = 0;
 double yaw_prev_error = 0;
 
 // Altitude PID calculation variables
 double vel_z_integral = 0;
+double vel_z_diff = 0;
 double vel_z_pid = 0;
+double prev_vel_z_error = 0;
+
+// Battery monitor
+double vbat = 0;
+double required_compensation = 0;
 
 // Serial packages sincronization
 int serial_counter = 0;
@@ -187,6 +196,7 @@ void setup() {
   ledcAttachPin(PWMD, ledChannelD); // Positive toruqe
   ledcWrite(ledChannelD, MS_TO_PWM(1000));
 
+  /*
   ledcSetup(ledChannelS1X, FREQ, RESOLUTION);
   ledcAttachPin(SERVO1_X, ledChannelS1X); // Positive toruqe
   ledcWrite(ledChannelS1X, MS_TO_PWM(1000));
@@ -201,12 +211,12 @@ void setup() {
 
   ledcSetup(ledChannelS2Y, FREQ, RESOLUTION);
   ledcAttachPin(SERVO2_Y, ledChannelS2Y); // Positive toruqe
-  ledcWrite(ledChannelS2Y, MS_TO_PWM(1000));
+  ledcWrite(ledChannelS2Y, MS_TO_PWM(1000));*/
 
-  pinMode(LASER1, OUTPUT);
+  /*pinMode(LASER1, OUTPUT);
   pinMode(LASER2, OUTPUT);
   digitalWrite(LASER1, LOW);
-  digitalWrite(LASER2, LOW);
+  digitalWrite(LASER2, LOW);*/
 
   // Start user interface while ESCs set up
   #if WIFI_GUI
@@ -252,6 +262,11 @@ void setup() {
   ms5611.requestPressure();
   delay(ALTITUDE_SAMPLING*1000.0);
 
+  // Battery reading initilization
+  vbat = analogRead(VBAT_ADC)*(3.3/4095.0)*(1.0076) + 0.1729;
+  double x = round((2.3 - vbat)*1000.0)/1000.0;
+  required_compensation = -2.8038*pow(x,6)+12.78*pow(x,5)-22.962*pow(x,4)+20.392*pow(x,3)-9.0565*pow(x,2)+2.4746*x-0.1464;
+
   // Orientation timer
   orientation_timer = timerBegin(0, 80, true);
   timerAttachInterrupt(orientation_timer, &orientation_isr, true);
@@ -294,21 +309,24 @@ void loop() {
   if(ui_callback)
   {    
     roll_integral = 0;
-    roll_prev_error = 0;
+    //roll_prev_error = 0;
+    //roll_derivative = 0;
     pitch_integral = 0;
-    pitch_prev_error = 0;
-    yaw_integral = 0;
-    yaw_prev_error = 0;
+    //pitch_prev_error = 0;
+    //pitch_derivative = 0;
+    //yaw_integral = 0;
+    //yaw_prev_error = 0;
     ui_callback = 0;
   }
   if(alt_callback)
   {
     if(alt_hold)
     {
-      //roll_setpoint = roll*180/PI;
-      //pitch_setpoint = pitch*180/PI;
+      roll_setpoint = roll*180/PI;
+      pitch_setpoint = pitch*180/PI;
       alt_setpoint = pos_z;
       vel_z_integral = 0;
+      prev_vel_z_error = 0;
     }
     else
     {
@@ -324,12 +342,12 @@ void loop() {
     ledcWrite(ledChannelB, MS_TO_PWM(1000));
     ledcWrite(ledChannelC, MS_TO_PWM(1000));
     ledcWrite(ledChannelD, MS_TO_PWM(1000));
-    ledcWrite(ledChannelS1X, MS_TO_PWM(1000));
+    /*ledcWrite(ledChannelS1X, MS_TO_PWM(1000));
     ledcWrite(ledChannelS1Y, MS_TO_PWM(1000));
     ledcWrite(ledChannelS2X, MS_TO_PWM(1000));
     ledcWrite(ledChannelS2Y, MS_TO_PWM(1000));
     digitalWrite(LASER1, LOW);
-    digitalWrite(LASER2, LOW);
+    digitalWrite(LASER2, LOW);*/
   }
   
   if(update_orientation)
@@ -355,7 +373,7 @@ void loop() {
     // Angular rate measurements
     roll_rate = roll_rate*0.7 + imu.gyroscope.x*imu.gyroscope.res*0.3;
     pitch_rate = pitch_rate*0.7 + imu.gyroscope.y*imu.gyroscope.res*0.3;
-    yaw_rate = yaw_rate*0.7 + imu.gyroscope.z*imu.gyroscope.res*0.3;
+    yaw_rate = yaw_rate*0.9 + imu.gyroscope.z*imu.gyroscope.res*0.1;
 
     // Vertical acceleration calculation and filtering
     prev_acc_z = acc_z;
@@ -377,12 +395,9 @@ void loop() {
     pos_z = pos_z + (dt*dt/2.0)*prev_acc_z + dt*vel_Z +(k1+k2*dt/2.0)*dt*dz;
     vel_Z = vel_Z + dt*prev_acc_z + k2*dt*dz;
 
-    /*Serial.print(roll*180.0/PI);
-    Serial.print(" ");
-    Serial.print(pitch*180.0/PI);
-    Serial.print(" ");
-    Serial.println(pos_z);*/
-    
+    // Battery voltage measurement lpf
+    double temp_meas = analogRead(VBAT_ADC)*(3.3/4095.0)*(1.0076) + 0.1729;
+    vbat = 0.92*vbat + 0.08*temp_meas;
     
     double ma = throttle;
     double mb = throttle;
@@ -392,26 +407,30 @@ void loop() {
     double roll_rate_setpoint = kr*(roll_setpoint - roll*180.0/PI);
     double pitch_rate_setpoint = kr*(pitch_setpoint - pitch*180.0/PI);
     double yaw_rate_setpoint = 0;//kr*(yaw_setpoint - orientation.get_yaw()*180.0/PI);
-    double vel_z_setpoint = ka*(alt_setpoint - pos_z);
-    vel_z_setpoint = constrain(vel_z_setpoint, -2, 2);
+    double vel_z_setpoint = kp_pos_z*(alt_setpoint - pos_z);
+    vel_z_setpoint = constrain(vel_z_setpoint, -3, 3);
     
     if(throttle >= 1100)
     {
       // Roll PID
       double roll_error = roll_rate_setpoint - roll_rate;
       double roll_diff = (roll_error - roll_prev_error)/dt;
+      roll_derivative = 0.8*roll_derivative + 0.2*roll_diff;
       roll_integral += roll_error*dt;
       roll_integral = constrain(roll_integral, -100, 100);
       roll_prev_error = roll_error;
-      double roll_pid = kp_roll*roll_error + ki_roll*roll_integral + kd_roll*roll_diff;
+      double roll_pid = kp_roll*roll_error + ki_roll*roll_integral + kd_roll*roll_derivative;
+      //roll_pid = 0;
 
       // Pitch PID
       double pitch_error = pitch_rate_setpoint - pitch_rate;
       double pitch_diff = (pitch_error - pitch_prev_error)/dt;
+      pitch_derivative = 0.8*pitch_derivative + 0.2*pitch_diff;
       pitch_integral += pitch_error*dt;
-      pitch_integral = constrain(roll_integral, -100, 100);
+      pitch_integral = constrain(pitch_integral, -100, 100);
       pitch_prev_error = pitch_error;
-      double pitch_pid = kp_pitch*pitch_error + ki_pitch*pitch_integral + kd_pitch*pitch_diff;
+      double pitch_pid = kp_pitch*pitch_error + ki_pitch*pitch_integral + kd_pitch*pitch_derivative;
+      //pitch_pid = 0;
 
       // Yaw PID
       double yaw_error = yaw_rate_setpoint - yaw_rate;
@@ -424,38 +443,88 @@ void loop() {
       if(alt_hold)
       {
         double vel_z_error = vel_z_setpoint - vel_Z;
+        double vel_p_term = vel_z_error*kp_vel_z;
+        if(abs(vel_z_error) < 0.1)
+        {
+          vel_p_term = vel_z_error*kp_vel_z/5.0;
+        }
         vel_z_integral += vel_z_error*dt;
         vel_z_integral = constrain(vel_z_integral, -50, 50);
-        vel_z_pid = kp_vel_z*vel_z_error + ki_vel_z*vel_z_integral - kd_vel_z*lpf_acc_z;
-        //Serial.println(vel_Z);
+        double vel_diff = (vel_z_error - prev_vel_z_error)/dt;
+        vel_z_diff = 0.8*vel_z_diff + 0.2*vel_diff;
+        prev_vel_z_error = vel_z_error;
+        
+        vel_z_pid = vel_p_term + ki_vel_z*vel_z_integral + kd_vel_z*vel_z_diff;
+        vel_z_pid = constrain(vel_z_pid, -100, 100);
+        vel_z_pid = 0;
+        //vel_z_pid = kp_vel_z*vel_z_error + ki_vel_z*vel_z_integral - kd_vel_z*lpf_acc_z;
       }
 
-      ma = constrain(throttle + vel_z_pid - roll_pid/4.0 - pitch_pid/4.0 + yaw_pid/4.0, 1100, 2000);
-      mb = constrain(throttle + vel_z_pid - roll_pid/4.0 + pitch_pid/4.0 - yaw_pid/4.0, 1100, 2000);
-      mc = constrain(throttle + vel_z_pid + roll_pid/4.0 + pitch_pid/4.0 + yaw_pid/4.0, 1100, 2000);
-      md = constrain(throttle + vel_z_pid + roll_pid/4.0 - pitch_pid/4.0 - yaw_pid/4.0, 1100, 2000);
+      //Serial.print(roll_pid);
+      //Serial.print(" ");
+      //Serial.println(pitch_pid);
+      
 
-      /*ma = constrain(throttle - roll_pid/4.0 - pitch_pid/4.0 + yaw_pid/4.0, 1100, 2000);
-      mb = constrain(throttle - roll_pid/4.0 + pitch_pid/4.0 - yaw_pid/4.0, 1100, 2000);
-      mc = constrain(throttle + roll_pid/4.0 + pitch_pid/4.0 + yaw_pid/4.0, 1100, 2000);
-      md = constrain(throttle + roll_pid/4.0 - pitch_pid/4.0 - yaw_pid/4.0, 1100, 2000);*/
+      double thrust = pow(throttle-1000.0,2)*0.00001095+0.6371;
+      ma = thrust + vel_z_pid - roll_pid/4.0 - pitch_pid/4.0;
+      mb = thrust + vel_z_pid - roll_pid/4.0 + pitch_pid/4.0;
+      mc = thrust + vel_z_pid + roll_pid/4.0 + pitch_pid/4.0;
+      md = thrust + vel_z_pid + roll_pid/4.0 - pitch_pid/4.0;
+      
+      ma = sqrt((ma - 0.6371)/0.00001095) + 1000.0 + (yaw_pid/4.0)/0.0003;
+      mb = sqrt((mb - 0.6371)/0.00001095) + 1000.0 - (yaw_pid/4.0)/0.0003;
+      mc = sqrt((mc - 0.6371)/0.00001095) + 1000.0 + (yaw_pid/4.0)/0.0003;
+      md = sqrt((md - 0.6371)/0.00001095) + 1000.0 - (yaw_pid/4.0)/0.0003;
+
+      double x = round((2.3 - vbat)*1000.0)/1000.0;
+      required_compensation = 0.95*required_compensation + 0.05*(-2.8038*pow(x,6)+12.78*pow(x,5)-22.962*pow(x,4)+20.392*pow(x,3)-9.0565*pow(x,2)+2.4746*x-0.1464);
+      ma = ma + (ma-1000)*required_compensation;
+      mb = mb + (mb-1000)*required_compensation;
+      mc = mc + (mc-1000)*required_compensation;
+      md = md + (md-1000)*required_compensation;
+
+      ma = constrain(ma, 1100, 2000);
+      mb = constrain(mb, 1100, 2000);
+      mc = constrain(mc, 1100, 2000);
+      md = constrain(md, 1100, 2000);
+
+      /*Serial.print(roll_pid);
+      Serial.print(" ");
+      Serial.println(ma);*/
+      
+      /*Serial.print(ma);
+      Serial.print(" ");
+      Serial.print(mb);
+      Serial.print(" ");
+      Serial.print(mc);
+      Serial.print(" ");
+      Serial.println(md);*/
+    }
+    else
+    {
+      ma = 1000.0;
+      mb = 1000.0;
+      mc = 1000.0;
+      md = 1000.0;
     }
 
     if(!eStop)
     {
       //Serial2.printf("%d,%.3f,%.2f,%.2f,%.2f\n", serial_counter, dt, roll*180/PI, kr*(roll_setpoint - roll*180.0/PI), roll_rate);
-      Serial2.printf("%d,%.3f,%.2f,%.2f,%.2f, %.2f\n", serial_counter, dt, acc_x, roll*180.0/PI, acc_y, pitch*180/PI);
-      serial_counter = (serial_counter+1)%10;
+      //Serial2.printf("%d,%.3f,%.2f,%.2f,%.2f, %.2f\n", serial_counter, dt, acc_x, roll*180.0/PI, acc_y, pitch*180/PI);
+      //serial_counter = (serial_counter+1)%10;
+      
       ledcWrite(ledChannelA, MS_TO_PWM(ma));
       ledcWrite(ledChannelB, MS_TO_PWM(mb));
       ledcWrite(ledChannelC, MS_TO_PWM(mc));
       ledcWrite(ledChannelD, MS_TO_PWM(md));
-      ledcWrite(ledChannelS1X, MS_TO_PWM(1500));
+      
+      /*ledcWrite(ledChannelS1X, MS_TO_PWM(1500));
       ledcWrite(ledChannelS1Y, MS_TO_PWM(1500));
       ledcWrite(ledChannelS2X, MS_TO_PWM(1500));
       ledcWrite(ledChannelS2Y, MS_TO_PWM(1500));
       digitalWrite(LASER1, HIGH);
-      digitalWrite(LASER2, HIGH);
+      digitalWrite(LASER2, HIGH);*/
     }
     
     update_orientation = 0;

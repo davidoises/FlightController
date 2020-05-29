@@ -7,21 +7,21 @@
 double eStop = 1;
 double throttle = 1000.0;
 double kr = 0; //40
-double ka = 0; // 4.7
+double kp_pos_z = 0; // 4.7
 
-double kp_roll = 0;//11;
+double kp_roll = 0;//8;//11
 double ki_roll = 0;
 double kd_roll = 0;//0.8;
 
-double kp_pitch = 0;//11;
+double kp_pitch = 0;//8;//11
 double ki_pitch = 0;
 double kd_pitch = 0;//0.8;
 
 double kp_yaw = 5.0;
 double ki_yaw = 0;
-double kd_yaw = 0;
+double kd_yaw = 0.1;
 
-double kp_vel_z = 1090.0;
+double kp_vel_z = 0;//1090.0;
 double ki_vel_z = 0;
 double kd_vel_z = 0;
 
@@ -49,10 +49,13 @@ double alt_setpoint = 0;
 #define SERVO1_Y 12
 #define SERVO2_X 26
 #define SERVO2_Y 25
+#define VBAT_ADC 37
 #define ADCA 37
 #define ADCB 38
 #define ADCC 34
 #define ADCD 35
+#define LASER1 0
+#define LASER2 2
 
 // setting PWM properties
 #define FREQ 250
@@ -61,10 +64,10 @@ double alt_setpoint = 0;
 #define ledChannelB 1
 #define ledChannelC 2
 #define ledChannelD 3
-#define ledChannelS1 4
-#define ledChannelS2 5
-#define ledChannelS3 6
-#define ledChannelS4 7
+#define ledChannelS1X 4
+#define ledChannelS1Y 5
+#define ledChannelS2X 6
+#define ledChannelS2Y 7
 
 // Constants for ESC control
 #define MAX_PWM (1<<RESOLUTION)-1
@@ -144,7 +147,12 @@ double yaw_prev_error = 0;
 
 // Altitude PID calculation variables
 double vel_z_integral = 0;
+double vel_z_diff = 0;
 double vel_z_pid = 0;
+double prev_vel_z_error = 0;
+
+// Battery monitor
+double vbat = 0;
 
 // Serial packages sincronization
 int serial_counter = 0;
@@ -185,9 +193,27 @@ void setup() {
   ledcAttachPin(PWMD, ledChannelD); // Positive toruqe
   ledcWrite(ledChannelD, MS_TO_PWM(1000));
 
-  ledcSetup(ledChannelS1, FREQ, RESOLUTION);
-  ledcAttachPin(SERVO1_X, ledChannelS1); // Positive toruqe
-  ledcWrite(ledChannelS1, MS_TO_PWM(1000));
+  /*
+  ledcSetup(ledChannelS1X, FREQ, RESOLUTION);
+  ledcAttachPin(SERVO1_X, ledChannelS1X); // Positive toruqe
+  ledcWrite(ledChannelS1X, MS_TO_PWM(1000));
+
+  ledcSetup(ledChannelS1Y, FREQ, RESOLUTION);
+  ledcAttachPin(SERVO1_Y, ledChannelS1Y); // Positive toruqe
+  ledcWrite(ledChannelS1Y, MS_TO_PWM(1000));
+
+  ledcSetup(ledChannelS2X, FREQ, RESOLUTION);
+  ledcAttachPin(SERVO2_X, ledChannelS2X); // Positive toruqe
+  ledcWrite(ledChannelS2X, MS_TO_PWM(1000));
+
+  ledcSetup(ledChannelS2Y, FREQ, RESOLUTION);
+  ledcAttachPin(SERVO2_Y, ledChannelS2Y); // Positive toruqe
+  ledcWrite(ledChannelS2Y, MS_TO_PWM(1000));*/
+
+  pinMode(LASER1, OUTPUT);
+  pinMode(LASER2, OUTPUT);
+  digitalWrite(LASER1, LOW);
+  digitalWrite(LASER2, LOW);
 
   // Start user interface while ESCs set up
   #if WIFI_GUI
@@ -232,6 +258,9 @@ void setup() {
   raw_temp = ms5611.readRawTemperature();
   ms5611.requestPressure();
   delay(ALTITUDE_SAMPLING*1000.0);
+
+  // Battery reading initilization
+  vbat = analogRead(VBAT_ADC)*(3.3/4095.0)*(1.0076) + 0.1729;
 
   // Orientation timer
   orientation_timer = timerBegin(0, 80, true);
@@ -290,6 +319,7 @@ void loop() {
       //pitch_setpoint = pitch*180/PI;
       alt_setpoint = pos_z;
       vel_z_integral = 0;
+      prev_vel_z_error = 0;
     }
     else
     {
@@ -305,7 +335,12 @@ void loop() {
     ledcWrite(ledChannelB, MS_TO_PWM(1000));
     ledcWrite(ledChannelC, MS_TO_PWM(1000));
     ledcWrite(ledChannelD, MS_TO_PWM(1000));
-    ledcWrite(ledChannelS1, MS_TO_PWM(1000));
+    /*ledcWrite(ledChannelS1X, MS_TO_PWM(1000));
+    ledcWrite(ledChannelS1Y, MS_TO_PWM(1000));
+    ledcWrite(ledChannelS2X, MS_TO_PWM(1000));
+    ledcWrite(ledChannelS2Y, MS_TO_PWM(1000));
+    digitalWrite(LASER1, LOW);
+    digitalWrite(LASER2, LOW);*/
   }
   
   if(update_orientation)
@@ -346,27 +381,32 @@ void loop() {
 
     double acc_x = (imu.accelerometer.x*cos(pitch) + imu.accelerometer.z*cos(roll)*sin(pitch) + imu.accelerometer.y*sin(pitch)*sin(roll))*imu.accelerometer.res;
     double acc_y = (imu.accelerometer.y*cos(roll) - imu.accelerometer.z*sin(roll))*imu.accelerometer.res;
-        
+    
     // Vertical channel velocity and position complementary-kalman filter
     double dz = prev_pressure - pos_z;
     if(sampled_calibration != 2) dz = 0;
     pos_z = pos_z + (dt*dt/2.0)*prev_acc_z + dt*vel_Z +(k1+k2*dt/2.0)*dt*dz;
     vel_Z = vel_Z + dt*prev_acc_z + k2*dt*dz;
     
+    // Battery voltage measurement lpf
+    double temp_meas = analogRead(VBAT_ADC)*(3.3/4095.0)*(1.0076) + 0.1729;
+    vbat = 0.92*vbat + 0.08*temp_meas;
+    
     double ma = throttle;
     double mb = throttle;
     double mc = throttle;
     double md = throttle;
 
-    //double roll_rate_setpoint = kr*(roll_setpoint - roll*180.0/PI);
-    //double pitch_rate_setpoint = kr*(pitch_setpoint - pitch*180.0/PI);
+    double roll_rate_setpoint = kr*(roll_setpoint - roll*180.0/PI);
+    double pitch_rate_setpoint = kr*(pitch_setpoint - pitch*180.0/PI);
     double yaw_rate_setpoint = 0;//kr*(yaw_setpoint - orientation.get_yaw()*180.0/PI);
-    double vel_z_setpoint = ka*(alt_setpoint - pos_z);
+    double vel_z_setpoint = kp_pos_z*(alt_setpoint - pos_z);
+    vel_z_setpoint = constrain(vel_z_setpoint, -3, 3);
     
     if(throttle >= 1100)
     {
       // Roll PID
-      double roll_error = roll_setpoint - roll*180.0/PI;
+      double roll_error = roll_rate_setpoint - roll_rate;
       double roll_diff = (roll_error - roll_prev_error)/dt;
       roll_integral += roll_error*dt;
       roll_integral = constrain(roll_integral, -100, 100);
@@ -374,10 +414,10 @@ void loop() {
       double roll_pid = kp_roll*roll_error + ki_roll*roll_integral + kd_roll*roll_diff;
 
       // Pitch PID
-      double pitch_error = pitch_setpoint - pitch*180.0/PI;
+      double pitch_error = pitch_rate_setpoint - pitch_rate;
       double pitch_diff = (pitch_error - pitch_prev_error)/dt;
       pitch_integral += pitch_error*dt;
-      pitch_integral = constrain(roll_integral, -100, 100);
+      pitch_integral = constrain(pitch_integral, -100, 100);
       pitch_prev_error = pitch_error;
       double pitch_pid = kp_pitch*pitch_error + ki_pitch*pitch_integral + kd_pitch*pitch_diff;
 
@@ -392,33 +432,73 @@ void loop() {
       if(alt_hold)
       {
         double vel_z_error = vel_z_setpoint - vel_Z;
+        double vel_p_term = vel_z_error*kp_vel_z;
+        if(abs(vel_z_error) < 0.1)
+        {
+          vel_p_term = vel_z_error*kp_vel_z/5.0;
+        }
         vel_z_integral += vel_z_error*dt;
         vel_z_integral = constrain(vel_z_integral, -50, 50);
-        vel_z_pid = kp_vel_z*vel_z_error + ki_vel_z*vel_z_integral - kd_vel_z*lpf_acc_z;
-        //Serial.println(vel_Z);
+        double vel_diff = (vel_z_error - prev_vel_z_error)/dt;
+        vel_z_diff = 0.8*vel_z_diff + 0.2*vel_diff;
+        prev_vel_z_error = vel_z_error;
+        
+        vel_z_pid = vel_p_term + ki_vel_z*vel_z_integral + kd_vel_z*vel_z_diff;
+        vel_z_pid = constrain(vel_z_pid, -100, 100);
+        //vel_z_pid = kp_vel_z*vel_z_error + ki_vel_z*vel_z_integral - kd_vel_z*lpf_acc_z;
+        //Serial.print(vel_Z);
+        //Serial.print(" ");
+        //Serial.println(vel_z_pid);
+        vel_z_pid = 0;
       }
 
+      ma = throttle + vel_z_pid - roll_pid/4.0 - pitch_pid/4.0 + yaw_pid/4.0;
+      mb = throttle + vel_z_pid - roll_pid/4.0 + pitch_pid/4.0 - yaw_pid/4.0;
+      mc = throttle + vel_z_pid + roll_pid/4.0 + pitch_pid/4.0 + yaw_pid/4.0;
+      md = throttle + vel_z_pid + roll_pid/4.0 - pitch_pid/4.0 - yaw_pid/4.0;
+
+      double x = (2.3 - vbat);
+      double required_compensation = -2.8038*pow(x,6)+12.78*pow(x,5)-22.962*pow(x,4)+20.392*pow(x,3)-9.0565*pow(x,2)+2.4746*x-0.1464;
+
+      ma = ma + (ma-1000)*required_compensation;
+      mb = mb + (mb-1000)*required_compensation;
+      mc = mc + (mc-1000)*required_compensation;
+      md = md + (md-1000)*required_compensation;
+
+      ma = constrain(ma, 1100, 2000);
+      mb = constrain(mb, 1100, 2000);
+      mc = constrain(mc, 1100, 2000);
+      md = constrain(md, 1100, 2000);
+      
+      /*
       ma = constrain(throttle + vel_z_pid - roll_pid/4.0 - pitch_pid/4.0 + yaw_pid/4.0, 1100, 2000);
       mb = constrain(throttle + vel_z_pid - roll_pid/4.0 + pitch_pid/4.0 - yaw_pid/4.0, 1100, 2000);
       mc = constrain(throttle + vel_z_pid + roll_pid/4.0 + pitch_pid/4.0 + yaw_pid/4.0, 1100, 2000);
-      md = constrain(throttle + vel_z_pid + roll_pid/4.0 - pitch_pid/4.0 - yaw_pid/4.0, 1100, 2000);
-
-      /*ma = constrain(throttle - roll_pid/4.0 - pitch_pid/4.0 + yaw_pid/4.0, 1100, 2000);
-      mb = constrain(throttle - roll_pid/4.0 + pitch_pid/4.0 - yaw_pid/4.0, 1100, 2000);
-      mc = constrain(throttle + roll_pid/4.0 + pitch_pid/4.0 + yaw_pid/4.0, 1100, 2000);
-      md = constrain(throttle + roll_pid/4.0 - pitch_pid/4.0 - yaw_pid/4.0, 1100, 2000);*/
+      md = constrain(throttle + vel_z_pid + roll_pid/4.0 - pitch_pid/4.0 - yaw_pid/4.0, 1100, 2000);*/
+    }
+    else
+    {
+      ma = 1000.0;
+      mb = 1000.0;
+      mc = 1000.0;
+      md = 1000.0;
     }
 
     if(!eStop)
     {
       //Serial2.printf("%d,%.3f,%.2f,%.2f,%.2f\n", serial_counter, dt, roll*180/PI, kr*(roll_setpoint - roll*180.0/PI), roll_rate);
-      Serial2.printf("%.3f,%.2f,%.2f\n", dt, roll*180/PI, (roll_setpoint - roll*180.0/PI));
-      serial_counter = (serial_counter+1)%10;
+      //Serial2.printf("%d,%.3f,%.2f,%.2f,%.2f, %.2f\n", serial_counter, dt, acc_x, roll*180.0/PI, acc_y, pitch*180/PI);
+      //serial_counter = (serial_counter+1)%10;
       ledcWrite(ledChannelA, MS_TO_PWM(ma));
       ledcWrite(ledChannelB, MS_TO_PWM(mb));
       ledcWrite(ledChannelC, MS_TO_PWM(mc));
       ledcWrite(ledChannelD, MS_TO_PWM(md));
-      ledcWrite(ledChannelS1, MS_TO_PWM(2000));
+      /*ledcWrite(ledChannelS1X, MS_TO_PWM(1500));
+      ledcWrite(ledChannelS1Y, MS_TO_PWM(1500));
+      ledcWrite(ledChannelS2X, MS_TO_PWM(1500));
+      ledcWrite(ledChannelS2Y, MS_TO_PWM(1500));
+      digitalWrite(LASER1, HIGH);
+      digitalWrite(LASER2, HIGH);*/
     }
     
     update_orientation = 0;
