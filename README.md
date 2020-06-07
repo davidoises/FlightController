@@ -8,9 +8,9 @@ Our drone is a quadrotor using **F450 airframe** with **A2212-13T 1000Kv** brush
 
 # The codes
 This folder contains 3 versions that work for this configuration. Each version has different approaches to PID controllers mixing and an RTOS based code.
-FlightController-RTOS-Simple - RTOS based with simple (linear) PWM-to-Thrust aproximation
-FlightController-YPR-Simple  - No-RTOS simple (linear) PWM-to-Thrust aproximation
-FlightController-YPR-Real  - No-RTOS and more accurate PWM-to-Thrust aproximation (quadratic)
+- FlightController-RTOS-Simple - RTOS based with simple (linear) PWM-to-Thrust aproximation
+- FlightController-YPR-Simple  - No-RTOS simple (linear) PWM-to-Thrust aproximation
+- FlightController-YPR-Real  - No-RTOS and more accurate PWM-to-Thrust aproximation (quadratic)
 
 # Components
 
