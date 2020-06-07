@@ -38,6 +38,7 @@ char auth[] = "eYcrTSn-5ZZDlGWLoPxtSGaHWEAMGeNb";
 uint8_t ui_callback = 0;
 uint8_t alt_callback = 0;
 uint8_t alt_hold = 0;
+double original_throttle = 0;
 BLYNK_WRITE(V0)
 {
   eStop = param.asInt(); // assigning incoming value from pin V1 to a variable
@@ -96,6 +97,19 @@ BLYNK_WRITE(V6)
   kr = param.asDouble(); // assigning incoming value from pin V1 to a variable
   //ka = param.asDouble();
   //kp_pos_z = param.asDouble();
+}
+
+BLYNK_WRITE(V7)
+{
+  if(param.asInt() == 1)
+  {
+    original_throttle = throttle;
+    throttle = 1400;
+  }
+  else
+  {
+    throttle = original_throttle;
+  }
 }
 
 /*BLYNK_CONNECTED()

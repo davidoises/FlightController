@@ -1,8 +1,7 @@
 #ifndef UI_CONF
 #define UI_CONF
 
-#define BLYNK_PRINT Serial
-
+//#define BLYNK_PRINT Serial
 
 #define WIFI_GUI 0
 
@@ -18,6 +17,8 @@
 #include <BLEServer.h>
 #endif
 
+
+
 // You should get Auth Token in the Blynk App.
 // Go to the Project Settings (nut icon).
 char auth[] = "eYcrTSn-5ZZDlGWLoPxtSGaHWEAMGeNb";
@@ -30,17 +31,8 @@ char auth[] = "eYcrTSn-5ZZDlGWLoPxtSGaHWEAMGeNb";
 //char pass[] = "37662DCDAF5B0E8E";
 //char ssid[] = "IZZI28681";
 //char pass[] = "37662DCDAF5B0E8E";
-char ssid[] = "INFINITUM0C3E71";
-char pass[] = "06653252FF";
-
-
-// Global variables related to user interface
-uint8_t ui_callback = 0;
-/*uint8_t eStop = 1;
-double throttle = 1000;
-double kp = 0;
-double ki = 0;
-double kd = 0;*/
+//char ssid[] = "INFINITUM0C3E71";
+//char pass[] = "06653252FF";
 
 BLYNK_WRITE(V0)
 {
@@ -50,35 +42,51 @@ BLYNK_WRITE(V0)
 
 BLYNK_WRITE(V1)
 {
-  throttle = param.asInt(); // assigning incoming value from pin V1 to a variable
+  throttle = constrain(param.asDouble(), 1000.0, 2000.0); // assigning incoming value from pin V1 to a variable
   ui_callback = 1;
 }
 
 BLYNK_WRITE(V2)
 {
-  kp = param.asDouble(); // assigning incoming value from pin V1 to a variable
+  roll = constrain(param.asDouble(), 1000.0, 2000.0); // assigning incoming value from pin V1 to a variable
   ui_callback = 1;
 }
 
 BLYNK_WRITE(V3)
 {
-  ki = param.asDouble(); // assigning incoming value from pin V1 to a variable
+  pitch = constrain(param.asDouble(), 1000.0, 2000.0); // assigning incoming value from pin V1 to a variable
   ui_callback = 1;
 }
 
 BLYNK_WRITE(V4)
 {
-  kd = param.asDouble(); // assigning incoming value from pin V1 to a variable
+  yaw = constrain(param.asDouble(), 1000.0, 2000.0); // assigning incoming value from pin V1 to a variable
   ui_callback = 1;
 }
 
-BLYNK_CONNECTED()
+BLYNK_WRITE(V5)
+{
+  
+  //alt_hold = param.asInt(); // assigning incoming value from pin V1 to a variable
+  //alt_callback = 1;
+  if(param.asInt() == 1)
+  {
+    aux1 = 1500;  
+  }
+  else{
+    aux1 = 1000;  
+  }
+  ui_callback = 1;
+  
+}
+
+/*BLYNK_CONNECTED()
 {
   Blynk.virtualWrite(V0, eStop);
   Blynk.virtualWrite(V1, throttle);
-  Blynk.virtualWrite(V2, kp);
-  Blynk.virtualWrite(V3, ki);
-  Blynk.virtualWrite(V4, kd);
-}
+  Blynk.virtualWrite(V2, kp_pitch);
+  Blynk.virtualWrite(V3, ki_pitch);
+  Blynk.virtualWrite(V4, kd_pitch);
+}*/
 
 #endif
