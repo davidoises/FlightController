@@ -13,8 +13,8 @@ This folder contains 3 versions that work for this configuration. Each version h
 - FlightController-YPR-Real  - No-RTOS and more accurate PWM-to-Thrust aproximation (quadratic)
 
 # PID Control
-This repo holds the simulink file containing the control solution for this project, wich is also described in terms of implementation through the following flow chart:
-![flow-chart](FlowDiagram-RTOS.jpg)
+This repo holds the simulink file containing the control solution for this project, wich is also described in terms of implementation through the following flow chart:  
+![flow-chart](FlowDiagram-RTOS.jpg)  
 
 # Components
 
