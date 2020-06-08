@@ -18,7 +18,7 @@ This repo holds the simulink file containing the control solution for this proje
 
 # Components
 
-For basic control of attitude and altitude the flight controller operates with a **6DOF IMU** and a **barometer**. The board used in this design uses **BMX055** and **MS5611**.
+For basic control of attitude and altitude the flight controller operates with a **6DOF IMU** and a **barometer**. The board used in this design uses **BMX055** or **MPU6050** for orientation and **MS5611** for altitude.
 
 A **LiPo** battery is required for BLDC and ESC power. This was tested on a **3S 5200mAh** battery, but is able to support **2S** batteries.
 
