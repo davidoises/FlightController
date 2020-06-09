@@ -172,7 +172,7 @@ void CC1125::transmit(void)
   }while(marcstate != 0x01); //0x0D = RX, 0x01 = IDLE, 0x13 = TX
 
   commandStrobe(SFTX); //flush the Tx_fifo conten
-  delayMicroseconds(100);
+  //delayMicroseconds(100);
 }
 
 void CC1125::tx_payload(uint8_t *txbuffer, uint8_t len)
@@ -185,6 +185,7 @@ void CC1125::tx_payload(uint8_t *txbuffer, uint8_t len)
 
 void CC1125::sendPacket(uint8_t *txbuffer, uint8_t len)
 {
+  
   tx_payload(txbuffer, len);
   transmit();
   receive();
@@ -274,7 +275,7 @@ void CC1125::commandStrobe(uint8_t instr)
   while(digitalRead(MISO_PIN) == 1);
   vspi->endTransaction();
   digitalWrite(SS_PIN, HIGH);
-  delay(100);
+  delayMicroseconds(100);
 }
 
 void CC1125::spiWrite(uint8_t reg, uint8_t data, uint8_t prefix)
