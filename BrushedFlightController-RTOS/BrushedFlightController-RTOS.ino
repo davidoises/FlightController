@@ -8,7 +8,8 @@
 #define PWMC 14
 #define PWMD 12
 #define VBAT_ADC 27
-#define IMU_INTERRUPT 19//25
+#define IMU_INTERRUPT 19// 25
+#define RF_INTERRUPT 15
 
 // setting PWM properties
 #define FREQ 30000
