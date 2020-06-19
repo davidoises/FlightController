@@ -24,6 +24,9 @@ void setup() {
   radio.setPALevel(RF24_PA_MIN);
   radio.startListening();
 
+  //Serial.println(radio.isChipConnected());
+  radio.printDetails();
+
   pinMode(INTERRUPT_PIN, INPUT);
   attachInterrupt(INTERRUPT_PIN, msg_flag_isr, FALLING);
   

@@ -21,6 +21,7 @@ void setup() {
   ps2x.setupPins(26, 27, 25, 32, 50);  // dataPin, cmndPin, attPin, clockPin, delay
 
   Serial.println("Starting transmission");
+  Serial.println(radio.isChipConnected());
 }
 
 void loop() {
