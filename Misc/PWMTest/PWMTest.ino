@@ -22,7 +22,7 @@
 // Variables for serial messages synchronization
 bool started = false;
 String message = "";
-double pwm = 0;
+double pwm = 50;
 
 // the setup function runs once when you press reset or power the board
 void setup() {
@@ -30,19 +30,19 @@ void setup() {
   
   ledcSetup(ledChannelA, FREQ, RESOLUTION);
   ledcAttachPin(PWMA, ledChannelA); // negative torque
-  ledcWrite(ledChannelA, DUTY_TO_PWM(0));
+  ledcWrite(ledChannelA, DUTY_TO_PWM(pwm));
 
   ledcSetup(ledChannelB, FREQ, RESOLUTION);
   ledcAttachPin(PWMB, ledChannelB); // negative torque
-  ledcWrite(ledChannelB, DUTY_TO_PWM(0));
+  ledcWrite(ledChannelB, DUTY_TO_PWM(pwm));
 
   ledcSetup(ledChannelC, FREQ, RESOLUTION);
   ledcAttachPin(PWMC, ledChannelC); // negative torque
-  ledcWrite(ledChannelC, DUTY_TO_PWM(0));
+  ledcWrite(ledChannelC, DUTY_TO_PWM(pwm));
 
   ledcSetup(ledChannelD, FREQ, RESOLUTION);
   ledcAttachPin(PWMD, ledChannelD); // negative torque
-  ledcWrite(ledChannelD, DUTY_TO_PWM(0));
+  ledcWrite(ledChannelD, DUTY_TO_PWM(pwm));
 }
 
 // the loop function runs over and over again forever

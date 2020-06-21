@@ -1,5 +1,6 @@
 #include "I2Cdev.h"
-#include "MPU6050_6Axis_MotionApps20.h"
+//#include "MPU6050_6Axis_MotionApps20.h"
+#include "MPU6050_6Axis_MotionApps_V6_12.h"
 #include "Wire.h"
 
 // HW Pins
@@ -8,7 +9,7 @@
 #define PWMC 14
 #define PWMD 12
 #define VBAT_ADC 27
-#define IMU_INTERRUPT 19// 25
+#define IMU_INTERRUPT 25
 #define RF_INTERRUPT 15
 
 // setting PWM properties
@@ -112,7 +113,11 @@ void mpu_loop(void *pvParameters )
     // wait for MPU interrupt or extra packet(s) available
     while(!mpuInterrupt && fifoCount < packetSize)
     {
-      vTaskDelay(50);
+      if (mpuInterrupt && fifoCount < packetSize) {
+        // try to get out of the infinite loop 
+        fifoCount = mpu.getFIFOCount();
+      } 
+      //vTaskDelay(10);
     }
   
     // reset interrupt flag and get INT_STATUS byte
@@ -123,13 +128,14 @@ void mpu_loop(void *pvParameters )
     fifoCount = mpu.getFIFOCount();
   
     // check for overflow (this should never happen unless our code is too inefficient)
-    if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
-      // reset so we can continue cleanly
-      mpu.resetFIFO();
-      Serial.println(F("FIFO overflow!"));
+    if ((mpuIntStatus & _BV(MPU6050_INTERRUPT_FIFO_OFLOW_BIT)) || fifoCount >= 1024) {
+        // reset so we can continue cleanly
+        mpu.resetFIFO();
+        fifoCount = mpu.getFIFOCount();
+        Serial.println(F("FIFO overflow!"));
   
       // otherwise, check for DMP data ready interrupt (this should happen frequently)
-    } else if (mpuIntStatus & 0x02) {
+    } else if (mpuIntStatus & _BV(MPU6050_INTERRUPT_DMP_INT_BIT)) {
       // wait for correct available data length, should be a VERY short wait
       while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
   
@@ -304,15 +310,16 @@ void loop(void)
     float dt = (current_time - prev_pid_time)/1000.0;
     prev_pid_time = current_time;
 
-    float roll = ypr[2];
-    float pitch = -ypr[1];
-    float yaw = -ypr[0];
+    float roll = ypr[2]* 180/M_PI;
+    float pitch = -ypr[1]* 180/M_PI;
+    float yaw = -ypr[0]* 180/M_PI;
 
-    //Serial.print(yaw * 180/M_PI); // yaw
-    //Serial.print(",");
-    //Serial.print(pitch * 180/M_PI); // pitch
-    //Serial.print(",");
-    //Serial.print(roll * 180/M_PI); // roll
+    
+    Serial.print(yaw, 1); // yaw
+    Serial.print(",");
+    Serial.print(pitch, 1); // pitch
+    Serial.print(",");
+    Serial.println(roll, 1); // roll
     //Serial.print(",");
     
     //Serial.print(gyr[0]); // yaw
