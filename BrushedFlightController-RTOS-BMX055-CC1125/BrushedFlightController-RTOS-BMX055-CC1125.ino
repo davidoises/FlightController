@@ -1,5 +1,6 @@
 #include "BMX055.h"
 #include "SensorFusion.h"
+#include "CC1125.h"
 
 // BMX055 IMU addresses
 #define AM_DEV 0x18
@@ -31,32 +32,14 @@
 // PID sampling
 #define PID_SAMPLING 0.004f
 
-// UI Control variables
-float eStop = 1;
-float throttle = 0;
-float roll_setpoint = 0;
-float pitch_setpoint = 0;
-float yaw_setpoint = 0;
-float aux1 = 1000.0;
-float ui_callback = 0;
-
-float kc_roll = 0;
-float kc_pitch = 0;
-
-float kp_roll_rate = 0;//3
-float kd_roll_rate = 0;//0.3
-
-float kp_pitch_rate = 0;//3*1.08
-float kd_pitch_rate = 0;//0.3
-
-float kp_yaw_rate = 1.0;//1.0; //0.002
-float kd_yaw_rate = 0.01;
-
-#include "ui_conf.h"
-
 // Class objects for data acquisition and sensor fusion
 BMX055 imu = BMX055(AM_DEV, G_DEV, MAG_DEV, USE_MAG_CALIBRATION);
 SensorFusion orientation;
+CC1125 rf_comm;
+
+// RF Message packet variables
+uint8_t rxBuffer[128] = {0};
+uint8_t pkt_size = 0;
 
 // Orientation measurements
 unsigned long prev_imu_time = 0;
@@ -73,6 +56,28 @@ float roll_rate_d = 0;
 float pitch_rate_d = 0;
 float yaw_rate_d = 0;
 
+// RF interface variables
+unsigned long prev_rf_time = 0;
+uint8_t prev_stop = 0;
+uint8_t eStop = 1;
+float throttle = 0;
+float roll_setpoint = 0;
+float pitch_setpoint = 0;
+float yaw_setpoint = 0;
+
+// PID gains
+float kc_roll = 13.2;
+float kc_pitch = 13.2;
+
+float kp_roll_rate = 2.2;
+float kd_roll_rate = 0.25;
+
+float kp_pitch_rate = 2.2;
+float kd_pitch_rate = 0.25;
+
+float kp_yaw_rate = 1.0;
+float kd_yaw_rate = 0.01;
+
 // PID calculation variables
 unsigned long prev_pid_time = 0;
 float prev_roll_rate_error = 0;
@@ -81,23 +86,86 @@ float prev_yaw_rate_error = 0;
 
 // Thread handles for tasks information display
 TaskHandle_t imu_handle = NULL;
-TaskHandle_t blynk_handle = NULL;
+TaskHandle_t rf_handle = NULL;
 
+// RF reception ISR
+volatile uint8_t msg_flag;
+void msg_flag_isr()
+{
+  msg_flag = 1; 
+}
+
+// PID timer ISR
 hw_timer_t * pid_timer = NULL;
 volatile uint8_t update_pid;
 void IRAM_ATTR pid_isr() {
   update_pid = 1;
 }
 
+float map_float(float x, float in_min, float in_max, float out_min, float out_max)
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
 
-void blynkLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinned to core 0
+float joystick_map(float value, float low_input, float middle_input, float high_input, float low_output, float high_output)
+{
+  float middle_output = (low_output + high_output)/2.0;
+  if(value <= middle_input)
+  {
+    return map_float(value, low_input, middle_input, low_output, middle_output);
+  }
+  else
+  {
+    return map_float(value, middle_input, high_input, middle_output, high_output);
+  }
+}
+
+void rfLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinned to core 0
   while (true) {
-    Blynk.run();
-    if(Blynk.connected() == 0)
+
+    unsigned long current_time = millis();
+    unsigned long dt = current_time - prev_rf_time;
+    if(dt > 1000)
     {
       eStop = 1;
     }
-    vTaskDelay(50);
+    
+    if(msg_flag)
+    {
+      rf_comm.get_packet(rxBuffer, pkt_size);
+      msg_flag = false;
+    }
+
+    if(pkt_size == 14)
+    {
+      prev_rf_time = current_time;
+
+      // Joystick reading and mapping to correct ranges
+      throttle = joystick_map(rxBuffer[3], 0, 123, 255, 1023, 0); // vertical left
+      roll_setpoint = joystick_map(rxBuffer[0], 0, 123, 255, -10, 10); // horizontal right
+      pitch_setpoint = joystick_map(rxBuffer[1], 0, 123, 255, 10, -10); // vertical right
+      //yaw_setpoint = joystick_map(rxBuffer[2], 0, 123, 255, -1, 1); // horizontal left
+
+      // Emergency stop simulated as a switch
+      uint8_t temp_stop = rxBuffer[4];
+      if(temp_stop == 1 && prev_stop == 0)
+      { 
+        if(eStop == 1 && throttle == 0)
+        {
+          eStop = 0;
+        }
+        else
+        {
+          eStop = 1;
+        }
+        //eStop = !eStop;
+      }
+      prev_stop = temp_stop;
+      
+      pkt_size = 0;
+    }
+    
+    vTaskDelay(40);
   }
 }
 void mpu_loop(void *pvParameters )
@@ -199,12 +267,16 @@ void setup(void)
   initial_acc_pitch /= 100;
   orientation.init(initial_acc_roll, initial_acc_pitch, MAG_TARGET);
 
-  // Start user interface while ESCs set up
-  #if WIFI_GUI
-  Blynk.begin(auth, ssid, pass);
-  #else
-  Blynk.begin(auth);
-  #endif
+  // Start Rf interface
+  rf_comm.begin();
+  Serial.println("CC1125 Initialized!");
+  rf_comm.manualCalibration();
+  Serial.println("Finished calibration");
+  rf_comm.receive();
+  Serial.println("Available for message recpetion");
+
+  pinMode(RF_INTERRUPT, INPUT_PULLUP);
+  attachInterrupt(RF_INTERRUPT, msg_flag_isr, FALLING);
   
   //Serial.println(ESP.getFreeHeap());
 
@@ -215,12 +287,12 @@ void setup(void)
   
   // Blyn application running on core 0
   xTaskCreatePinnedToCore(
-    blynkLoop,      /* Function to implement the task */
-    "blynk core 0", /* Name of the task */
+    rfLoop,      /* Function to implement the task */
+    "RF core 0", /* Name of the task */
     5000,         /* Stack size in words */
     NULL,           /* Task input parameter */
     1,              /* Priority of the task */
-    &blynk_handle,           /* Task handle. */
+    &rf_handle,           /* Task handle. */
     0);             /* Core where the task should run */
 
   // IMU measurements running on core 0
@@ -241,6 +313,7 @@ void setup(void)
 
   prev_imu_time = millis();
   prev_pid_time = millis();
+  prev_rf_time = millis();
 }
 
 void loop(void)
@@ -328,12 +401,12 @@ void loop(void)
     // If not under emergency stop, apply pwm
     if(!eStop)
     {
-      /*
-      ma = 0;
+      
+      /*ma = 0;
       mb = 0;
       mc = 0;
-      md = 0;
-      */
+      md = 0;*/
+      
       ledcWrite(ledChannelA, ma);
       ledcWrite(ledChannelB, mb);
       ledcWrite(ledChannelC, mc);
@@ -345,10 +418,6 @@ void loop(void)
     //Serial.print("\t");
     //Serial.print(uxTaskGetStackHighWaterMark(imu_handle));
     //Serial.println(throttle);
-
-    Serial.print(roll);
-    Serial.print(" ");
-    Serial.println(pitch);
     
     update_pid = 0;
   }

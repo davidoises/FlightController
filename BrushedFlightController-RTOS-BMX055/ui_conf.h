@@ -66,6 +66,7 @@ BLYNK_WRITE(V2)
   kp_roll_rate = param.asDouble();
   //kp_pitch_rate = param.asDouble();
   kp_pitch_rate = kp_roll_rate;
+  //kp_yaw_rate = param.asDouble();
 #endif
 }
 
@@ -80,6 +81,7 @@ BLYNK_WRITE(V3)
   kd_roll_rate = param.asDouble();
   //kd_pitch_rate = param.asDouble();
   kd_pitch_rate = kd_roll_rate;
+  //kd_yaw_rate = param.asDouble();
 #endif
 }
 
@@ -111,6 +113,16 @@ BLYNK_WRITE(V5)
   ui_callback = 1;
   
 }
+
+/*BLYNK_APP_CONNECTED()
+{
+  Serial.println("Connected");
+}
+
+BLYNK_APP_DISCONNECTED()
+{
+  Serial.println("Disconnected");
+}*/
 
 /*BLYNK_CONNECTED()
 {

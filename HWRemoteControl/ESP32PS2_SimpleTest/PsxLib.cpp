@@ -84,12 +84,18 @@ void Psx::setupPins(byte dataPin, byte cmndPin, byte attPin, byte clockPin, byte
 
   delayMicroseconds(1000000);
   
-  sendCommandString(enter_config, sizeof(enter_config)); //start config run
-  sendCommandString(set_mode, sizeof(set_mode));
-  sendCommandString(exit_config, sizeof(exit_config));
-
-  read();
-  Serial.println(_mode, HEX); // Shoujld be -x73
+  
+  
+  do
+  {
+    sendCommandString(enter_config, sizeof(enter_config)); //start config run
+    sendCommandString(set_mode, sizeof(set_mode));
+    sendCommandString(exit_config, sizeof(exit_config));
+  
+    read();
+    Serial.println(_mode, HEX); // Shoujld be -x73
+  }
+  while(_mode & 0xf0 != 0x70);
 }
 
 
