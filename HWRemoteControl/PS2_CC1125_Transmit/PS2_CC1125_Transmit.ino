@@ -8,6 +8,19 @@ Psx ps2x;
 uint8_t txBuffer[128] = {0};
 uint8_t pkt_size = 0;
 
+int joystick_map(int value, float low_input, float middle_input, float high_input, float low_output, float high_output)
+{
+  float middle_output = (low_output + high_output)/2.0;
+  if(value <= middle_input)
+  {
+    return map(value, low_input, middle_input, low_output, middle_output);
+  }
+  else
+  {
+    return map(value, middle_input, high_input, middle_output, high_output);
+  }
+}
+
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
@@ -34,10 +47,10 @@ void loop() {
   txBuffer[1] = 0xAA; // Receiver address  
 
   // Joystick values
-  txBuffer[2] = ps2x.analog(0);
-  txBuffer[3] = ps2x.analog(1);
-  txBuffer[4] = ps2x.analog(2);
-  txBuffer[5] = ps2x.analog(3);
+  txBuffer[2] = joystick_map(ps2x.analog(0), 0, 123, 255, 0, 255); // horizontal right
+  txBuffer[3] = joystick_map(ps2x.analog(1), 0, 123, 255, 255, 0); // vertical right
+  txBuffer[4] = joystick_map(ps2x.analog(2), 0, 123, 255, 0, 255); // horizontal left
+  txBuffer[5] = joystick_map(ps2x.analog(3), 0, 123, 255, 255, 0); // vertical left
 
   txBuffer[6] = ps2x.button(PSB_START);
   txBuffer[7] = ps2x.button(PSB_SELECT);

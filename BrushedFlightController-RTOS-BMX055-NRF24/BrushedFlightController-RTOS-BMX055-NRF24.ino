@@ -1,6 +1,8 @@
 #include "BMX055.h"
 #include "SensorFusion.h"
-#include "CC1125.h"
+#include <SPI.h>
+#include "nRF24L01.h"
+#include "RF24.h"
 
 // BMX055 IMU addresses
 #define AM_DEV 0x18
@@ -18,7 +20,7 @@
 #define LED_PIN 0
 
 // setting PWM properties
-#define FREQ 70000
+#define FREQ 30000
 #define RESOLUTION 10
 #define ledChannelA 0
 #define ledChannelB 1
@@ -31,16 +33,24 @@
 //#define DUTY_TO_PWM(x) ((float)x)*((float)MAX_PWM)/100.0
 
 // PID sampling
-#define PID_SAMPLING 0.006f
+#define PID_SAMPLING 0.004f
 
 // Class objects for data acquisition and sensor fusion
 BMX055 imu = BMX055(AM_DEV, G_DEV, MAG_DEV, USE_MAG_CALIBRATION);
 SensorFusion orientation;
-CC1125 rf_comm;
+RF24 radio(4, 5, 18, 19, 23); // CE, CSN, SCK, MISO, MOSI
 
 // RF Message packet variables
-uint8_t rxBuffer[128] = {0};
-uint8_t pkt_size = 0;
+struct RF24Data {
+  byte throttle;
+  byte yaw;
+  byte pitch;
+  byte roll;
+  byte AUX1;
+  byte AUX2;
+  byte switches;
+};
+const uint64_t pipeIn = 0xE8E8F0F0E1LL;  //Remember, SAME AS TRANSMITTER CODE
 
 // Orientation measurements
 unsigned long prev_imu_time = 0;
@@ -58,8 +68,8 @@ float pitch_rate_d = 0;
 float yaw_rate_d = 0;
 
 // RF interface variables
+RF24Data remote_data;
 unsigned long prev_rf_time = 0;
-uint8_t prev_stop = 0;
 uint8_t eStop = 1;
 float throttle = 0;
 float roll_setpoint = 0;
@@ -117,51 +127,20 @@ void rfLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinned 
     {
       eStop = 1;
     }
-    
-    if(msg_flag)
-    {
-      rf_comm.get_packet(rxBuffer, pkt_size);
-      msg_flag = false;
-    }
-    /*uint8_t marcstate = rf_comm.spiRead(MARCSTATE, EXTD_REGISTER);
-    Serial.println(marcstate);
-    if((marcstate&0x1F) != 0x0D && marcstate != 31)
-    {
-      Serial.println("trying something");
-      rf_comm.commandStrobe(SFRX);
-      rf_comm.receive();
-    }*/
-    //Serial.println(marcstate);
-    // PAGE 101 manual
-    //31 = 1F dosent even exist
-    //46 = 0x2E = RX_END doesnt seem like an issue
-    //17 = 0x11 = RX_FIFO_ERR solve by SFRX i.e. flush rx fifo
 
-    if(pkt_size >= 14)
+    if(msg_flag)
     {
       prev_rf_time = current_time;
 
-      // Joystick reading and mapping to correct ranges
-      throttle = map_float(rxBuffer[3], 0, 255, 0, 850); // vertical left
-      roll_setpoint = map_float(rxBuffer[0], 0, 255, -10, 10); // horizontal right
-      pitch_setpoint = map_float(rxBuffer[1], 0, 255, -10, 10); // vertical right
-      //yaw_setpoint = map_float(rxBuffer[2], 0, 255, -1, 1); // horizontal left
+      radio.read(&remote_data, sizeof(RF24Data));
 
-      // Emergency stop simulated as a switch
-      uint8_t temp_stop = rxBuffer[13];
-      if(temp_stop == 1 && prev_stop == 0)
-      { 
-        if(eStop == 1 && throttle == 0)
-        {
-          eStop = 0;
-        }
-        else
-        {
-          eStop = 1;
-        }
-        //eStop = !eStop;
-      }
-      prev_stop = temp_stop;
+      // Joystick reading and mapping to correct ranges
+      throttle = map_float(remote_data.throttle, 0, 255, 0, 850); // vertical left
+      roll_setpoint = map_float(remote_data.roll, 0, 255, -10, 10); // horizontal right
+      pitch_setpoint = map_float(remote_data.pitch, 0, 255, -10, 10); // vertical right
+      //yaw_setpoint = map_float(remote_data.yaw, 0, 255, -1, 1); // horizontal left
+
+      eStop = !remote_data.AUX1;
 
       if(throttle > 550)
       {
@@ -172,19 +151,18 @@ void rfLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinned 
         digitalWrite(LED_PIN, LOW);
       }
 
-      /*Serial.print(eStop);
-      Serial.print(" ");
+      /*
       Serial.print(throttle);
       Serial.print(" ");
       Serial.print(roll_setpoint);
       Serial.print(" ");
-      Serial.println(pitch_setpoint);*/
+      Serial.println(pitch_setpoint);
+      */
       
-      
-      pkt_size = 0;
+      msg_flag = false;
     }
     
-    vTaskDelay(40);
+    vTaskDelay(1);
   }
 }
 void mpu_loop(void *pvParameters )
@@ -267,8 +245,7 @@ void setup(void)
   // IMU intialization and calibration
   imu.acc_init();
   imu.gyr_init();
-  /*
-  for(int i = 0; i < 200; i++)
+  /*for(int i = 0; i < 200; i++)
   {
     imu.get_acc_data();
     delay(5);
@@ -292,9 +269,7 @@ void setup(void)
   Serial.print(initial_acc_roll, 6);
   Serial.print(" ");
   Serial.println(initial_acc_pitch, 6);
-  delay(5000);
-  */
-  
+  delay(5000);*/
   for(int i = 0; i < 200; i++)
   {
     imu.get_acc_data();
@@ -317,14 +292,13 @@ void setup(void)
   initial_acc_pitch /= 100;
   orientation.init(initial_acc_roll, initial_acc_pitch, MAG_TARGET);
   //orientation.init(-0.20243775, 0.146825, MAG_TARGET);
-  
+
   // Start Rf interface
-  rf_comm.begin();
-  Serial.println("CC1125 Initialized!");
-  rf_comm.manualCalibration();
-  Serial.println("Finished calibration");
-  rf_comm.receive();
-  Serial.println("Available for message recpetion");
+  radio.begin();
+  radio.maskIRQ(1,1,0);
+  //radio.setAutoAck(false);
+  radio.openReadingPipe(0, pipeIn);
+  radio.startListening();
   
   pinMode(RF_INTERRUPT, INPUT_PULLUP);
   attachInterrupt(RF_INTERRUPT, msg_flag_isr, FALLING);
@@ -383,7 +357,6 @@ void loop(void)
     // Calculate elapse time (shoule be exactly 0.004s)
     unsigned long current_time = millis();
     float dt = (current_time - prev_pid_time)/1000.0;
-    //Serial.println(current_time - prev_pid_time);
     prev_pid_time = current_time;
 
     
@@ -393,12 +366,6 @@ void loop(void)
     orientation.fuse_sensors(imu.accelerometer.x, imu.accelerometer.y, imu.accelerometer.z,
                             imu.gyroscope.x*imu.gyroscope.res, imu.gyroscope.y*imu.gyroscope.res, imu.gyroscope.z*imu.gyroscope.res,
                             imu.magnetometer.x, imu.magnetometer.y, imu.magnetometer.z);
-
-    /*Serial.print(imu.accelerometer.x);
-    Serial.print(" ");
-    Serial.print(imu.accelerometer.y);
-    Serial.print(" ");
-    Serial.println(imu.accelerometer.z);*/
     
     roll = orientation.get_roll()*180.0/PI;
     pitch = orientation.get_pitch()*180.0/PI;
@@ -466,9 +433,9 @@ void loop(void)
       md = 0;
       
       ma = throttle;
-      mb = throttle;
-      mc = throttle;
-      md = throttle;
+      //mb = throttle;
+      //mc = throttle;
+      //md = throttle;
       ledcWrite(ledChannelA, ma);
       ledcWrite(ledChannelB, mb);
       ledcWrite(ledChannelC, mc);
@@ -481,14 +448,11 @@ void loop(void)
     //Serial.print(uxTaskGetStackHighWaterMark(imu_handle));
     //Serial.println(throttle);
 
-    //Serial.print(throttle/100, 0);
-    //Serial.print(" ");
-    
-    Serial.print(roll_rate);
+    Serial.print(throttle/100, 0);
     Serial.print(" ");
-    Serial.print(pitch_rate);
+    Serial.print(roll, 1);
     Serial.print(" ");
-    Serial.println(yaw_rate);
+    Serial.println(pitch, 1);
     
     
     update_pid = 0;

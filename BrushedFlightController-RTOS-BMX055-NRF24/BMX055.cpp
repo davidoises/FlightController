@@ -20,8 +20,8 @@ void BMX055::acc_init()
   // Set G range to 0x03 = +/- 2g, 0x08 = +/- 8g, needs to be in 2g for fast offset compnesation
   acc_write(AM_PMU_RANGE, 0x03);
 
-  // St bandwidth to 0x08 = 7.81Hz, 0x09 = 15.63, 0x0B = 62.5
-  acc_write(AM_PMU_BW, 0x09); // previous = 0x0B
+  // St bandwidth to 0x08 = 7.81Hz, 0x0B = 62.5
+  acc_write(AM_PMU_BW, 0x0B);
 
   // Completely disable FOC and reset offsets
   //acc_write(AM_OFC_CTRL, 0x00);
@@ -55,11 +55,12 @@ void BMX055::gyr_init()
   delay(4);
   //delay(2);
 
-  // Set range to 0x03 = +/- 250 deg/s, 0x02 =+/- 500deg/s, 0x01 = +/- 1000deg/s
-  gyr_write(G_RANGE, 0x02); // previous 0x02
+  // Set range to 0x03 = +/- 250 deg/s, 0x02 =+/- 500deg/s
+  gyr_write(G_RANGE, 0x02);
+  //gyr_write(G_RANGE, 0x02);
 
   // 0x05 = 100Hz ODR and lp-filter at 12Hz. 0x04 = 200Hz lpf at 23Hz. 0x03 = 400Hz lpf at 47Hz
-  gyr_write(G_BW, 0x05); //previous value was 0x04
+  gyr_write(G_BW, 0x04); //05
 
   //RATE_HBW
   gyr_write(G_RATE_HBW, 0x00); // Enables data shadowinf and filtered output
@@ -635,7 +636,7 @@ uint8_t BMX055::acc_read(uint8_t reg)
 
 uint8_t BMX055::acc_write(uint8_t reg, uint8_t data)
 {
-    uint8_t tx_data[2];
+    uint8_t tx_data[1];
     tx_data[0] = reg;
     tx_data[1] = data;
     return i2cset(Addr_Accel, tx_data, 2, true);
@@ -650,7 +651,7 @@ uint8_t BMX055::gyr_read(uint8_t reg)
 
 uint8_t BMX055::gyr_write(uint8_t reg, uint8_t data)
 {
-    uint8_t tx_data[2];
+    uint8_t tx_data[1];
     tx_data[0] = reg;
     tx_data[1] = data;
     return i2cset(Addr_Gyro, tx_data, 2, true);
@@ -665,7 +666,7 @@ uint8_t BMX055::mag_read(uint8_t reg)
 
 uint8_t BMX055::mag_write(uint8_t reg, uint8_t data)
 {
-    uint8_t tx_data[2];
+    uint8_t tx_data[1];
     tx_data[0] = reg;
     tx_data[1] = data;
     return i2cset(Addr_magnet, tx_data, 2, true);

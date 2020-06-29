@@ -52,12 +52,6 @@ void SensorFusion::fuse_sensors(double ax, double ay, double az, double gx, doub
   if(az_av.index == az_av.samples) az_av.index = 0;
   az = az_av.sum/az_av.samples;
 
-  /*Serial.print(ax);
-  Serial.print(" ");
-  Serial.print(ay);
-  Serial.print(" ");
-  Serial.println(az);*/
-
   // x, y angles from gyroscope
   double gyr_roll = gx*t_delta*(PI/180.0);
   double gyr_pitch = gy*t_delta*(PI/180.0);
@@ -66,8 +60,8 @@ void SensorFusion::fuse_sensors(double ax, double ay, double az, double gx, doub
   //double acc_roll = atan2(ay, sqrt(pow(ax, 2) + pow(az, 2))) - roll_offset;
   //double acc_pitch = atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2))) - pitch_offset;
 
-  double acc_roll = atan2(ay, sqrt(pow(ax, 2) + pow(az, 2))) - (-0.008483667);
-  double acc_pitch = atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2))) - (0.019847667);
+  double acc_roll = atan2(ay, sqrt(pow(ax, 2) + pow(az, 2))) - (-0.20243775);
+  double acc_pitch = atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2))) - (0.146825);
 
   acc_roll_av.sum -= acc_roll_av.memory[acc_roll_av.index];
   acc_roll_av.memory[acc_roll_av.index] = acc_roll;

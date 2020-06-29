@@ -40,17 +40,17 @@ float yaw_setpoint = 0;
 float aux1 = 1000.0;
 float ui_callback = 0;
 
-float kc_roll = 0;
-float kc_pitch = 0;
+float kc_roll = 9;
+float kc_pitch = 9;
 
-float kp_roll_rate = 0;//3
-float kd_roll_rate = 0;//0.3
+float kp_roll_rate = 1.5;//3
+float kd_roll_rate = 0.2;//0.3
 
-float kp_pitch_rate = 0;//3*1.08
-float kd_pitch_rate = 0;//0.3
+float kp_pitch_rate = 1.5;//3*1.08
+float kd_pitch_rate = 0.2;//0.3
 
-float kp_yaw_rate = 1.0;//1.0; //0.002
-float kd_yaw_rate = 0.01;
+float kp_yaw_rate = 0.5;//1.0; //0.002
+float kd_yaw_rate = 0;
 
 #include "ui_conf.h"
 
@@ -97,7 +97,7 @@ void blynkLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinn
     {
       eStop = 1;
     }
-    vTaskDelay(50);
+    vTaskDelay(40);
   }
 }
 void mpu_loop(void *pvParameters )
@@ -269,8 +269,8 @@ void loop(void)
                             imu.gyroscope.x*imu.gyroscope.res, imu.gyroscope.y*imu.gyroscope.res, imu.gyroscope.z*imu.gyroscope.res,
                             imu.magnetometer.x, imu.magnetometer.y, imu.magnetometer.z);
     
-    roll = orientation.get_roll()*180.0/PI;
-    pitch = orientation.get_pitch()*180.0/PI;
+    roll = 0.7*roll + 0.3*orientation.get_roll()*180.0/PI;
+    pitch = 0.7*pitch + 0.3*orientation.get_pitch()*180.0/PI;
     //yaw = orientation.get_yaw()*180.0/PI;
 
     roll_rate = roll_rate*0.7 + imu.gyroscope.x*imu.gyroscope.res*0.3;
@@ -311,11 +311,21 @@ void loop(void)
       prev_yaw_rate_error = yaw_rate_error;
       float yaw_pid = kp_yaw_rate*yaw_rate_error + kd_yaw_rate*yaw_rate_error_diff;
 
+      /*Serial.print(roll_pid);
+      Serial.print(" ");
+      Serial.println(pitch_pid);*/
+
       // Control law signals mixer according to quad X configuration
       ma = throttle - roll_pid/4.0 + pitch_pid/4.0 + yaw_pid/4.0;
       mb = throttle + roll_pid/4.0 + pitch_pid/4.0 - yaw_pid/4.0;
       mc = throttle + roll_pid/4.0 - pitch_pid/4.0 + yaw_pid/4.0;
-      md = throttle - roll_pid/4.0 + pitch_pid/4.0 - yaw_pid/4.0;
+      md = throttle - roll_pid/4.0 - pitch_pid/4.0 - yaw_pid/4.0;
+
+      /*Serial.print(roll, 1);
+      Serial.print(" ");
+      Serial.print(pitch, 1);
+      Serial.print(" ");
+      Serial.println(ma);*/
     }
     else
     {
@@ -328,8 +338,8 @@ void loop(void)
     // If not under emergency stop, apply pwm
     if(!eStop)
     {
-      /*
-      ma = 0;
+      
+      /*ma = 0;
       mb = 0;
       mc = 0;
       md = 0;
@@ -349,6 +359,7 @@ void loop(void)
     Serial.print(roll);
     Serial.print(" ");
     Serial.println(pitch);
+    //yaw_rate
     
     update_pid = 0;
   }

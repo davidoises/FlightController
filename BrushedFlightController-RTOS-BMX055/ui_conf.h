@@ -17,7 +17,7 @@
 #include <BLEServer.h>
 #endif
 
-#define GAIN_UI 1
+#define GAIN_UI 0
 #if GAIN_UI
 #define CONTROL_UI 0
 #else
@@ -51,14 +51,15 @@ BLYNK_WRITE(V0)
 
 BLYNK_WRITE(V1)
 {
-  throttle = constrain(param.asDouble(), 0.0, MAX_PWM); // assigning incoming value from pin V1 to a variable
+  //throttle = constrain(param.asDouble(), 0.0, MAX_PWM); // assigning incoming value from pin V1 to a variable
+  throttle = constrain(param.asDouble(), 0.0, 850.0); // assigning incoming value from pin V1 to a variable
   //ui_callback = 1;
 }
 
 BLYNK_WRITE(V2)
 {
 #if CONTROL_UI
-  roll_setpoint = constrain(param.asDouble(), 1000.0, 2000.0); // assigning incoming value from pin V1 to a variable
+  roll_setpoint = constrain(param.asDouble()/10.0, -10.0, 10.0); // assigning incoming value from pin V1 to a variable
   ui_callback = 1;
 #endif
 
@@ -73,7 +74,7 @@ BLYNK_WRITE(V2)
 BLYNK_WRITE(V3)
 {
 #if CONTROL_UI
-  pitch_setpoint = constrain(param.asDouble(), 1000.0, 2000.0); // assigning incoming value from pin V1 to a variable
+  pitch_setpoint = constrain(param.asDouble()/10.0, -10.0, 10.0); // assigning incoming value from pin V1 to a variable
   ui_callback = 1;
 #endif
 
@@ -88,7 +89,7 @@ BLYNK_WRITE(V3)
 BLYNK_WRITE(V4)
 {
 #if CONTROL_UI
-  yaw_setpoint = constrain(param.asDouble(), 1000.0, 2000.0); // assigning incoming value from pin V1 to a variable
+  yaw_setpoint = constrain(param.asDouble(), -1.0, 1.0); // assigning incoming value from pin V1 to a variable
   ui_callback = 1;
 #endif
 
