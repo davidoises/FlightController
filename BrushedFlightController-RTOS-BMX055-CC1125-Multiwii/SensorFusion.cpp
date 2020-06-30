@@ -17,6 +17,12 @@ void SensorFusion::init(float initial_roll, float initial_pitch, float initial_y
   prev_time = millis();
 }
 
+void SensorFusion::set_acc_offsets(float rollOffset, float pitchOffset)
+{
+  roll_offset = rollOffset;
+  pitch_offset = pitchOffset;
+}
+
 /*SensorFusion::~SensorFusion()
 {}*/
 
@@ -66,8 +72,8 @@ void SensorFusion::fuse_sensors(float ax, float ay, float az, float gx, float gy
   //float acc_roll = atan2(ay, sqrt(pow(ax, 2) + pow(az, 2))) - roll_offset;
   //float acc_pitch = atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2))) - pitch_offset;
 
-  float acc_roll = atan2(ay, sqrt(pow(ax, 2) + pow(az, 2))) - (-0.008483667);
-  float acc_pitch = atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2))) - (0.019847667);
+  float acc_roll = atan2(ay, sqrt(pow(ax, 2) + pow(az, 2))) - roll_offset;
+  float acc_pitch = atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2))) - pitch_offset;
 
   acc_roll_av.sum -= acc_roll_av.memory[acc_roll_av.index];
   acc_roll_av.memory[acc_roll_av.index] = acc_roll;
@@ -154,8 +160,8 @@ void SensorFusion::fuse_sensors(float ax, float ay, float az, float gx, float gy
   float gyr_roll = gx*t_delta*(PI/180.0);
   float gyr_pitch = gy*t_delta*(PI/180.0);
 
-  float acc_roll = atan2(ay, sqrt(pow(ax, 2) + pow(az, 2))) - (-0.09205);
-  float acc_pitch = atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2))) - (-0.05691);
+  float acc_roll = atan2(ay, sqrt(pow(ax, 2) + pow(az, 2))) - roll_offset;
+  float acc_pitch = atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2))) - pitch_offset;
 
   acc_roll_av.sum -= acc_roll_av.memory[acc_roll_av.index];
   acc_roll_av.memory[acc_roll_av.index] = acc_roll;

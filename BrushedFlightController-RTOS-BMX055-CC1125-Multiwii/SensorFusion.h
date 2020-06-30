@@ -10,12 +10,15 @@
 class SensorFusion  
 {
   public:
+    float roll_offset;
+    float pitch_offset;
 
     // Constructor/destructor
     void init(float initial_roll, float initial_pitch, float initial_yaw);
     //~SensorFusion();
 
     void set_yaw_offset(float offset);
+    void set_acc_offsets(float rollOffset, float pitchOffset);
     void fuse_sensors(float ax, float ay, float az, float gx, float gy, float gz, float mx, float my, float mz);
     void fuse_sensors(float ax, float ay, float az, float gx, float gy, float gz);
     float get_roll();
@@ -29,8 +32,6 @@ class SensorFusion
     RollingMemory ay_av;
     RollingMemory az_av;
     unsigned long prev_time;
-    float roll_offset;
-    float pitch_offset;
     float roll;
     float pitch;
     float yaw; // Mag target is the initial value at which the yaw will calibrate

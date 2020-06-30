@@ -1,6 +1,9 @@
 #include "BMX055.h"
 #include "SensorFusion.h"
 #include "CC1125.h"
+#include <EEPROM.h>
+
+#define EEPROM_SIZE sizeof(float)*2
 
 // BMX055 IMU addresses
 #define AM_DEV 0x18
@@ -31,7 +34,7 @@
 //#define DUTY_TO_PWM(x) ((float)x)*((float)MAX_PWM)/100.0
 
 // PID sampling
-#define PID_SAMPLING 6000//2800
+#define PID_SAMPLING 2800
 
 // Class objects for data acquisition and sensor fusion
 BMX055 imu = BMX055(AM_DEV, G_DEV, MAG_DEV, USE_MAG_CALIBRATION);
@@ -57,8 +60,6 @@ enum rc {
 };
 
 // Orientation measurements
-int16_t roll = 0;
-int16_t pitch = 0;
 float roll_rate = 0;
 float pitch_rate = 0;
 float yaw_rate = 0;
@@ -66,6 +67,9 @@ float yaw_rate = 0;
 // PID calculation variables
 unsigned long prev_pid_time = 0;
 int16_t axisPID[3];
+
+// Motor values
+int16_t motor[4];
 
 // Thread handles for tasks information display
 TaskHandle_t rf_handle = NULL;
@@ -147,7 +151,7 @@ void rfLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinned 
       uint8_t temp_stop = rxBuffer[13];
       if(temp_stop == 1 && prev_stop == 0)
       { 
-        if(eStop == 1 && rcData[THROTTLE] == 0)
+        if(eStop == 1 && rcData[THROTTLE] == 1000)
         {
           eStop = 0;
         }
@@ -175,6 +179,72 @@ void rfLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinned 
   }
 }
 
+void calibrateAcc()
+{
+  for(int i = 0; i < 200; i++)
+  {
+    imu.get_acc_data();
+    delay(5);
+  }
+  float initial_acc_roll = 0;
+  float initial_acc_pitch = 0;
+  for(int i = 0; i < 100; i++)
+  {
+    imu.get_acc_data();
+    double ax = imu.accelerometer.x;
+    double ay = imu.accelerometer.y;
+    double az = imu.accelerometer.z;
+    initial_acc_roll += atan2(ay, sqrt(pow(ax, 2) + pow(az, 2)));
+    initial_acc_pitch += atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2)));
+    //initial_acc += az*imu.accelerometer.res;
+    delay(4);
+  }
+  initial_acc_roll /= 100;
+  initial_acc_pitch /= 100;
+
+  int address = 0;
+
+  EEPROM.put(address, initial_acc_roll);
+  //EEPROM.commit();
+  address += sizeof(float);
+  EEPROM.put(address, initial_acc_pitch);
+  EEPROM.commit();
+
+  orientation.set_acc_offsets(initial_acc_roll, initial_acc_pitch);
+
+  /*
+  Serial.print(initial_acc_roll, 6);
+  Serial.print(" ");
+  Serial.println(initial_acc_pitch, 6);
+  delay(5000);
+  */
+}
+
+void initalAngle()
+{
+  for(int i = 0; i < 200; i++)
+  {
+    imu.get_acc_data();
+    delay(5);
+  }
+  double initial_acc_roll = 0;
+  double initial_acc_pitch = 0;
+  for(int i = 0; i < 100; i++)
+  {
+    imu.get_acc_data();
+    double ax = imu.accelerometer.x;
+    double ay = imu.accelerometer.y;
+    double az = imu.accelerometer.z;
+    initial_acc_roll += atan2(ay, sqrt(pow(ax, 2) + pow(az, 2))) - orientation.roll_offset;
+    initial_acc_pitch += atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2))) - orientation.pitch_offset;
+    //initial_acc += az*imu.accelerometer.res;
+    delay(4);
+  }
+  initial_acc_roll /= 100;
+  initial_acc_pitch /= 100;
+  orientation.init(initial_acc_roll, initial_acc_pitch, MAG_TARGET);
+}
+
 void setup(void)
 {
   // Start UART Bus
@@ -186,6 +256,8 @@ void setup(void)
   // Start SPI Bus
   Wire.begin();
   Wire.setClock(400000); // 400kHz I2C clock.
+
+  EEPROM.begin(EEPROM_SIZE);
 
   // Initialize PWM channels
   ledcSetup(ledChannelA, FREQ, RESOLUTION);
@@ -207,58 +279,25 @@ void setup(void)
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
+  delay(1000);
+
   // IMU intialization and calibration
   imu.acc_init();
   imu.gyr_init();
-  /*
-  for(int i = 0; i < 200; i++)
-  {
-    imu.get_acc_data();
-    delay(5);
-  }
-  double initial_acc_roll = 0;
-  double initial_acc_pitch = 0;
-  for(int i = 0; i < 100; i++)
-  {
-    imu.get_acc_data();
-    double ax = imu.accelerometer.x;
-    double ay = imu.accelerometer.y;
-    double az = imu.accelerometer.z;
-    initial_acc_roll += atan2(ay, sqrt(pow(ax, 2) + pow(az, 2)));
-    initial_acc_pitch += atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2)));
-    //initial_acc += az*imu.accelerometer.res;
-    delay(4);
-  }
-  initial_acc_roll /= 100;
-  initial_acc_pitch /= 100;
-  orientation.init(initial_acc_roll, initial_acc_pitch, MAG_TARGET);
-  Serial.print(initial_acc_roll, 6);
-  Serial.print(" ");
-  Serial.println(initial_acc_pitch, 6);
-  delay(5000);
-  */
+
+  //calibrateAcc();
+
+  float roll_offset = 0;
+  float pitch_offset = 0;
+
+  int address = 0;
+  EEPROM.get(address, roll_offset);
+  address += sizeof(float);
+  EEPROM.get(address, pitch_offset);
   
-  for(int i = 0; i < 200; i++)
-  {
-    imu.get_acc_data();
-    delay(5);
-  }
-  double initial_acc_roll = 0;
-  double initial_acc_pitch = 0;
-  for(int i = 0; i < 100; i++)
-  {
-    imu.get_acc_data();
-    double ax = imu.accelerometer.x;
-    double ay = imu.accelerometer.y;
-    double az = imu.accelerometer.z;
-    initial_acc_roll += atan2(ay, sqrt(pow(ax, 2) + pow(az, 2))) - (-0.09205);
-    initial_acc_pitch += atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2))) - (-0.05691);
-    //initial_acc += az*imu.accelerometer.res;
-    delay(4);
-  }
-  initial_acc_roll /= 100;
-  initial_acc_pitch /= 100;
-  orientation.init(initial_acc_roll, initial_acc_pitch, MAG_TARGET);
+  orientation.set_acc_offsets(roll_offset, pitch_offset); // This should be read from an EEPROM
+
+  initalAngle();
   
   // Start Rf interface
   rf_comm.begin();
@@ -303,9 +342,11 @@ void loop(void)
 
   uint8_t axis;
   int16_t rc;
-  int16_t error;
+  int16_t error, errorAngle;
   int16_t delta;
+  static int32_t errorGyroI_YAW;
   static int16_t errorGyroI[2] = {0,0};
+  static int16_t errorAngleI[2] = {0,0};
   static int16_t delta1[2],delta2[2];
   static int16_t lastGyro[2] = {0,0};
 
@@ -314,32 +355,36 @@ void loop(void)
   uint8_t kp = 33;
   uint8_t ki = 30;
   uint8_t kd = 23;
-  
-  // Dont let anything run under emergency stop
-  if(eStop)
-  {
-    ledcWrite(ledChannelA, 0);
-    ledcWrite(ledChannelB, 0);
-    ledcWrite(ledChannelC, 0);
-    ledcWrite(ledChannelD, 0);
-  }
+
+  uint8_t level_kp = 90;
+  uint8_t level_ki = 10;
+  uint8_t level_kd = 100;
+
+  uint8_t yaw_kp = 68;
+  uint8_t yaw_ki = 45;
+  uint8_t yaw_kd = 0;
   
   if(update_pid)
   {
     // Simple loop time verification
+    
     /*
     unsigned long current_time = micros();
     float dt = current_time - prev_pid_time;
     Serial.println(dt, 0);
     prev_pid_time = current_time;
     */
+    
 
-    unsigned long begining_time = micros();
+    //unsigned long begining_time = micros();
     
     if(rcData[THROTTLE] <= 1100)
     {
       errorGyroI[ROLL] = 0;
       errorGyroI[PITCH] = 0;
+      errorGyroI_YAW = 0;
+      errorAngleI[ROLL] = 0;
+      errorAngleI[PITCH] = 0;
     }
     
     imu.get_gyr_data();
@@ -348,8 +393,9 @@ void loop(void)
     orientation.fuse_sensors(imu.accelerometer.x, imu.accelerometer.y, imu.accelerometer.z,
                             imu.gyroscope.x*imu.gyroscope.res, imu.gyroscope.y*imu.gyroscope.res, imu.gyroscope.z*imu.gyroscope.res);
 
-    roll = orientation.get_roll()*180.0*10.0/PI;
-    pitch = orientation.get_pitch()*180.0*10.0/PI;
+    int16_t angle[2];
+    angle[ROLL] = orientation.get_roll()*180.0*10.0/PI;
+    angle[PITCH] = orientation.get_pitch()*180.0*10.0/PI;
 
     roll_rate = roll_rate*0.7 + imu.gyroscope.x*imu.gyroscope.res*0.3;
     pitch_rate = pitch_rate*0.7 + imu.gyroscope.y*imu.gyroscope.res*0.3;
@@ -370,6 +416,23 @@ void loop(void)
       ITerm = (errorGyroI[axis]>>7)*ki>>6;                        // 16 bits is ok here 16000/125 = 128 ; 128*250 = 32000
   
       PTerm = (rc*kp)>>6;
+
+      // ANGLE MOde PID
+      if(true){
+        // 50 degrees max inclination
+        errorAngle         = constrain(rc,-500,+500) - angle[axis]; //16 bits is ok here
+        errorAngleI[axis]  = constrain(errorAngleI[axis]+errorAngle,-10000,+10000);                                                // WindUp     //16 bits is ok here
+  
+        PTermACC           = errorAngle*level_kp>>7; // 32 bits is needed for calculation: errorAngle*P8 could exceed 32768   16 bits is ok for result
+  
+        int16_t limit      = level_kd*5;
+        PTermACC           = constrain(PTermACC,-limit,+limit);
+  
+        ITermACC           = errorAngleI[axis]*level_ki>>12;   // 32 bits is needed for calculation:10000*I8 could exceed 32768   16 bits is ok for result
+  
+        ITerm              = ITermACC;
+        PTerm              = PTermACC;
+      }
   
       PTerm -= (gyroData[axis]*kp)>>6; // 32 bits is needed for calculation   
   
@@ -381,58 +444,68 @@ void loop(void)
    
       DTerm = (DTerm*kd)>>5;        // 32 bits is needed for calculation
   
-      axisPID[axis] =  PTerm + ITerm - DTerm;
+      axisPID[axis] = PTerm + ITerm - DTerm;
     }
     
-    Serial.print(gyroData[PITCH]);
-    Serial.print(" ");
-    Serial.println(axisPID[PITCH]);
+    //YAW
+    #define GYRO_P_MAX 300
+    #define GYRO_I_MAX 250
+  
+    rc = rcCommand[YAW] * 30  >> 5;
 
-    // If not under emergency stop, apply pwm
-    if(!eStop)
-    {
-      
-      /*
-      ma = 0;
-      mb = 0;
-      mc = 0;
-      md = 0;
-      
-      ma = throttle;
-      mb = throttle;
-      mc = throttle;
-      md = throttle;
-      ledcWrite(ledChannelA, ma);
-      ledcWrite(ledChannelB, mb);
-      ledcWrite(ledChannelC, mc);
-      ledcWrite(ledChannelD, md);
-      */
+    error = rc - gyroData[YAW];
+    errorGyroI_YAW  += error*yaw_ki;
+    errorGyroI_YAW  = constrain(errorGyroI_YAW, 2-((int32_t)1<<28), -2+((int32_t)1<<28));
+    if (abs(rc) > 50) errorGyroI_YAW = 0;
+
+    PTerm = error*kp>>6;
+    ITerm = constrain((int16_t)(errorGyroI_YAW>>13),-GYRO_I_MAX,+GYRO_I_MAX);
+
+    axisPID[YAW] =  PTerm + ITerm;
+
+    // Mix table
+    motor[0] = rcCommand[THROTTLE] - axisPID[ROLL] + axisPID[PITCH] + axisPID[YAW];
+    motor[1] = rcCommand[THROTTLE] + axisPID[ROLL] + axisPID[PITCH] - axisPID[YAW];
+    motor[2] = rcCommand[THROTTLE] + axisPID[ROLL] - axisPID[PITCH] + axisPID[YAW];
+    motor[3] = rcCommand[THROTTLE] - axisPID[ROLL] - axisPID[PITCH] - axisPID[YAW];
+
+    int16_t maxMotor;
+    uint8_t i;
+
+    maxMotor=motor[0];
+    for(i=1; i< 4; i++)
+      if (motor[i]>maxMotor) maxMotor=motor[i];
+    for(i=0; i< 4; i++) {
+      if (maxMotor > 2000) // this is a way to still have good gyro corrections if at least one motor reaches its max.
+        motor[i] -= maxMotor - 2000;
+      motor[i] = constrain(motor[i], 1000, 2000);
+      if ((rcData[THROTTLE] < 1100))
+        motor[i] = 1000;
+      if (eStop)
+        motor[i] = 1000;
     }
+
+    for(i=0; i< 4; i++) {
+      motor[i] = map(motor[i], 1000, 2000, 0, MAX_PWM);
+    }
+
+    ledcWrite(ledChannelA, motor[0]);
+    ledcWrite(ledChannelB, motor[1]);
+    ledcWrite(ledChannelC, motor[2]);
+    ledcWrite(ledChannelD, motor[3]);
 
     // Log some values
     //Serial.print(uxTaskGetStackHighWaterMark(blynk_handle));
     //Serial.print("\t");
     //Serial.print(uxTaskGetStackHighWaterMark(imu_handle));
-    //Serial.println(throttle);
 
-    //Serial.print(throttle/100, 0);
+    //Serial.print(angle[ROLL]/10.0);
     //Serial.print(" ");
-    
-    /*
-    Serial.print(tmp_roll_rate);
-    Serial.print(" ");
-    Serial.print(tmp_pitch_rate);
-    Serial.print(" ");
-    Serial.println(tmp_yaw_rate);
-    */
-
-    /*Serial.print(tmp_roll);
-    Serial.print(" ");
-    Serial.println(tmp_pitch);*/
+    //Serial.println(angle[PITCH]/10.0);
     
     
     update_pid = 0;
-    float elapsed_time = micros() - begining_time;
+    //float elapsed_time = micros() - begining_time;
     //Serial.println(elapsed_time, 0);
   }
 }
