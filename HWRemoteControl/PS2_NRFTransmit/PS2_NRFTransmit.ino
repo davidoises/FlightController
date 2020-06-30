@@ -3,7 +3,7 @@
 #include "RF24.h"
 #include "PsxLib.h"
 
-#define MULTIWII 0
+#define MULTIWII 1
 
 RF24 radio(4, 5, 18, 19, 23); // CE, CSN, SCK, MISO, MOSI
 Psx ps2x;

@@ -18,7 +18,7 @@
 #define LED_PIN 0
 
 // setting PWM properties
-#define FREQ 70000
+#define FREQ 32000 // 70000 was working well
 #define RESOLUTION 10
 #define ledChannelA 0
 #define ledChannelB 1
@@ -31,7 +31,7 @@
 //#define DUTY_TO_PWM(x) ((float)x)*((float)MAX_PWM)/100.0
 
 // PID sampling
-#define PID_SAMPLING 0.006f
+#define PID_SAMPLING 6000//2800
 
 // Class objects for data acquisition and sensor fusion
 BMX055 imu = BMX055(AM_DEV, G_DEV, MAG_DEV, USE_MAG_CALIBRATION);
@@ -42,51 +42,32 @@ CC1125 rf_comm;
 uint8_t rxBuffer[128] = {0};
 uint8_t pkt_size = 0;
 
-// Orientation measurements
-unsigned long prev_imu_time = 0;
-float roll = 0;
-float pitch = 0;
-float yaw = 0;
-float roll_rate = 0;
-float pitch_rate = 0;
-float yaw_rate = 0;
-float prev_roll_rate = 0;
-float prev_pitch_rate = 0;
-float prev_yaw_rate = 0;
-float roll_rate_d = 0;
-float pitch_rate_d = 0;
-float yaw_rate_d = 0;
-
 // RF interface variables
 unsigned long prev_rf_time = 0;
 uint8_t prev_stop = 0;
 uint8_t eStop = 1;
-float throttle = 0;
-float roll_setpoint = 0;
-float pitch_setpoint = 0;
-float yaw_setpoint = 0;
+int16_t rcData[4];
+int16_t rcCommand[4];
 
-// PID gains
-float kc_roll = 5.0;
-float kc_pitch = 5.0;
+enum rc {
+  ROLL,
+  PITCH,
+  YAW,
+  THROTTLE,
+};
 
-float kp_roll_rate = 1.5;
-float kd_roll_rate = 0.2;
-
-float kp_pitch_rate = 1.5;
-float kd_pitch_rate = 0.2;
-
-float kp_yaw_rate = 0.5;
-float kd_yaw_rate = 0;
+// Orientation measurements
+int16_t roll = 0;
+int16_t pitch = 0;
+float roll_rate = 0;
+float pitch_rate = 0;
+float yaw_rate = 0;
 
 // PID calculation variables
 unsigned long prev_pid_time = 0;
-float prev_roll_rate_error = 0;
-float prev_pitch_rate_error = 0;
-float prev_yaw_rate_error = 0;
+int16_t axisPID[3];
 
 // Thread handles for tasks information display
-TaskHandle_t imu_handle = NULL;
 TaskHandle_t rf_handle = NULL;
 
 // RF reception ISR
@@ -103,10 +84,12 @@ void IRAM_ATTR pid_isr() {
   update_pid = 1;
 }
 
+/*
 float map_float(float x, float in_min, float in_max, float out_min, float out_max)
 {
   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
+*/
 
 void rfLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinned to core 0
   while (true) {
@@ -142,16 +125,29 @@ void rfLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinned 
       prev_rf_time = current_time;
 
       // Joystick reading and mapping to correct ranges
-      throttle = map_float(rxBuffer[3], 0, 255, 0, 850); // vertical left
-      roll_setpoint = map_float(rxBuffer[0], 0, 255, -10, 10); // horizontal right
-      pitch_setpoint = map_float(rxBuffer[1], 0, 255, -10, 10); // vertical right
-      //yaw_setpoint = map_float(rxBuffer[2], 0, 255, -1, 1); // horizontal left
+      rcData[THROTTLE] = map(rxBuffer[3], 0, 255, 1000, 2000); // vertical left
+      rcData[ROLL] = map(rxBuffer[0], 0, 255, -500, 500); // horizontal right
+      rcData[PITCH] = map(rxBuffer[1], 0, 255, -500, 500); // vertical right
+      rcData[YAW] = map(rxBuffer[2], 0, 255, -500, 500); // horizontal left
+
+      // Exponential and ajusted scales
+      rcCommand[THROTTLE] = map(constrain(rcData[THROTTLE], 1100, 2000), 1100, 2000, 1000, 2000);
+
+      float x = ((float)abs(rcData[ROLL]))/128.0;
+      rcCommand[ROLL] = ((1526.0 + 65.0*(x*x-15.0))*90.0*x)/1192.0;
+      if(rcData[ROLL] < 0) rcCommand[ROLL] = -rcCommand[ROLL]; 
+
+      x = ((float)abs(rcData[PITCH]))/128.0;
+      rcCommand[PITCH] = ((1526.0 + 65.0*(x*x-15.0))*90.0*x)/1192.0;
+      if(rcData[PITCH] < 0) rcCommand[PITCH] = -rcCommand[PITCH];
+      
+      rcCommand[YAW] = rcData[YAW];
 
       // Emergency stop simulated as a switch
       uint8_t temp_stop = rxBuffer[13];
       if(temp_stop == 1 && prev_stop == 0)
       { 
-        if(eStop == 1 && throttle == 0)
+        if(eStop == 1 && rcData[THROTTLE] == 0)
         {
           eStop = 0;
         }
@@ -163,7 +159,7 @@ void rfLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinned 
       }
       prev_stop = temp_stop;
 
-      if(throttle > 550)
+      if(rcData[THROTTLE] > 1550)
       {
         digitalWrite(LED_PIN, HIGH);
       }
@@ -171,64 +167,11 @@ void rfLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinned 
       {
         digitalWrite(LED_PIN, LOW);
       }
-
-      /*Serial.print(eStop);
-      Serial.print(" ");
-      Serial.print(throttle);
-      Serial.print(" ");
-      Serial.print(roll_setpoint);
-      Serial.print(" ");
-      Serial.println(pitch_setpoint);*/
-      
       
       pkt_size = 0;
     }
     
     vTaskDelay(40);
-  }
-}
-void mpu_loop(void *pvParameters )
-{
-  while(true)
-  {
-    /*
-    unsigned long current_time = millis();
-    float dt = (current_time - prev_imu_time)/1000.0;
-    prev_imu_time = current_time;
-
-    imu.get_gyr_data();
-    imu.get_acc_data();
-
-    orientation.fuse_sensors(imu.accelerometer.x, imu.accelerometer.y, imu.accelerometer.z,
-                            imu.gyroscope.x*imu.gyroscope.res, imu.gyroscope.y*imu.gyroscope.res, imu.gyroscope.z*imu.gyroscope.res,
-                            imu.magnetometer.x, imu.magnetometer.y, imu.magnetometer.z);
-    
-    roll = orientation.get_roll()*180.0/PI;
-    pitch = orientation.get_pitch()*180.0/PI;
-    //yaw = orientation.get_yaw()*180.0/PI;
-
-    //Serial.print(imu.accelerometer.x);
-    //Serial.print(" ");
-    //Serial.println(pitch);
-    
-    roll_rate = roll_rate*0.7 + imu.gyroscope.x*imu.gyroscope.res*0.3;
-    pitch_rate = pitch_rate*0.7 + imu.gyroscope.y*imu.gyroscope.res*0.3;
-    yaw_rate = yaw_rate*0.7 + imu.gyroscope.z*imu.gyroscope.res*0.3;
-
-    Serial.print(dt);
-    Serial.print(" ");
-    Serial.print(imu.gyroscope.x*imu.gyroscope.res);
-    Serial.print(" ");
-    Serial.println(imu.gyroscope.y*imu.gyroscope.res);
-    //Serial.print(" ");
-    //Serial.println(imu.gyroscope.z*imu.gyroscope.res);
-
-    roll_rate_d = (roll_rate - prev_roll_rate)/dt;
-    pitch_rate_d = (pitch_rate - prev_pitch_rate)/dt;
-    yaw_rate_d = (yaw_rate - prev_yaw_rate)/dt;*/
-
-    vTaskDelay(8);
-
   }
 }
 
@@ -308,15 +251,14 @@ void setup(void)
     double ax = imu.accelerometer.x;
     double ay = imu.accelerometer.y;
     double az = imu.accelerometer.z;
-    initial_acc_roll += atan2(ay, sqrt(pow(ax, 2) + pow(az, 2))) - (-0.20243775);
-    initial_acc_pitch += atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2))) - (0.146825);
+    initial_acc_roll += atan2(ay, sqrt(pow(ax, 2) + pow(az, 2))) - (-0.09205);
+    initial_acc_pitch += atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2))) - (-0.05691);
     //initial_acc += az*imu.accelerometer.res;
     delay(4);
   }
   initial_acc_roll /= 100;
   initial_acc_pitch /= 100;
   orientation.init(initial_acc_roll, initial_acc_pitch, MAG_TARGET);
-  //orientation.init(-0.20243775, 0.146825, MAG_TARGET);
   
   // Start Rf interface
   rf_comm.begin();
@@ -334,7 +276,7 @@ void setup(void)
   // Orientation PID timer setup running at 250 Hz
   pid_timer = timerBegin(0, 80, true);
   timerAttachInterrupt(pid_timer, &pid_isr, true);
-  timerAlarmWrite(pid_timer, PID_SAMPLING*1000000.0, true);
+  timerAlarmWrite(pid_timer, PID_SAMPLING, true);
   
   // Blyn application running on core 0
   xTaskCreatePinnedToCore(
@@ -346,29 +288,33 @@ void setup(void)
     &rf_handle,           /* Task handle. */
     0);             /* Core where the task should run */
 
-  // IMU measurements running on core 0
-  xTaskCreatePinnedToCore(
-    mpu_loop,      /* Function to implement the task */
-    "IMU core 0", /* Name of the task */
-    5000,         /* Stack size in words */
-    NULL,           /* Task input parameter */
-    2,              /* Priority of the task */
-    &imu_handle,           /* Task handle. */
-    0);             /* Core where the task should run */
-
   // Start pid timer
   timerAlarmEnable(pid_timer);
   
   Serial.println("Intial setup finished");
   //total heap = 177360
 
-  prev_imu_time = millis();
-  prev_pid_time = millis();
+  prev_pid_time = micros();
   prev_rf_time = millis();
 }
 
 void loop(void)
 {
+
+  uint8_t axis;
+  int16_t rc;
+  int16_t error;
+  int16_t delta;
+  static int16_t errorGyroI[2] = {0,0};
+  static int16_t delta1[2],delta2[2];
+  static int16_t lastGyro[2] = {0,0};
+
+  int16_t PTerm = 0,ITerm = 0,DTerm, PTermACC, ITermACC;
+
+  uint8_t kp = 33;
+  uint8_t ki = 30;
+  uint8_t kd = 23;
+  
   // Dont let anything run under emergency stop
   if(eStop)
   {
@@ -380,89 +326,73 @@ void loop(void)
   
   if(update_pid)
   {
-    // Calculate elapse time (shoule be exactly 0.004s)
-    unsigned long current_time = millis();
-    float dt = (current_time - prev_pid_time)/1000.0;
-    //Serial.println(current_time - prev_pid_time);
+    // Simple loop time verification
+    /*
+    unsigned long current_time = micros();
+    float dt = current_time - prev_pid_time;
+    Serial.println(dt, 0);
     prev_pid_time = current_time;
+    */
 
+    unsigned long begining_time = micros();
+    
+    if(rcData[THROTTLE] <= 1100)
+    {
+      errorGyroI[ROLL] = 0;
+      errorGyroI[PITCH] = 0;
+    }
     
     imu.get_gyr_data();
     imu.get_acc_data();
 
     orientation.fuse_sensors(imu.accelerometer.x, imu.accelerometer.y, imu.accelerometer.z,
-                            imu.gyroscope.x*imu.gyroscope.res, imu.gyroscope.y*imu.gyroscope.res, imu.gyroscope.z*imu.gyroscope.res,
-                            imu.magnetometer.x, imu.magnetometer.y, imu.magnetometer.z);
+                            imu.gyroscope.x*imu.gyroscope.res, imu.gyroscope.y*imu.gyroscope.res, imu.gyroscope.z*imu.gyroscope.res);
 
-    /*Serial.print(imu.accelerometer.x);
-    Serial.print(" ");
-    Serial.print(imu.accelerometer.y);
-    Serial.print(" ");
-    Serial.println(imu.accelerometer.z);*/
-    
-    roll = orientation.get_roll()*180.0/PI;
-    pitch = orientation.get_pitch()*180.0/PI;
-    //yaw = orientation.get_yaw()*180.0/PI;
+    roll = orientation.get_roll()*180.0*10.0/PI;
+    pitch = orientation.get_pitch()*180.0*10.0/PI;
 
     roll_rate = roll_rate*0.7 + imu.gyroscope.x*imu.gyroscope.res*0.3;
     pitch_rate = pitch_rate*0.7 + imu.gyroscope.y*imu.gyroscope.res*0.3;
     yaw_rate = yaw_rate*0.7 + imu.gyroscope.z*imu.gyroscope.res*0.3;
-    int16_t tmp_pitch_rate = (int16_t)(pitch_rate*16.4)>>2;
-    int16_t tmp_roll_rate = (int16_t)(roll_rate*16.4)>>2;
-    int16_t tmp_yaw_rate = (int16_t)(yaw_rate*16.4)>>2;
-
-    /*roll_rate_d = (roll_rate - prev_roll_rate)/dt;
-    pitch_rate_d = (pitch_rate - prev_pitch_rate)/dt;
-    yaw_rate_d = (yaw_rate - prev_yaw_rate)/dt;*/
     
-    // Variables for ESC pwm values
-    float ma = throttle;
-    float mb = throttle;
-    float mc = throttle;
-    float md = throttle;
+    int16_t gyroData[3];
+    gyroData[ROLL] = (int16_t)(roll_rate*16.4)>>2;
+    gyroData[PITCH] = (int16_t)(pitch_rate*16.4)>>2;
+    gyroData[YAW] = (int16_t)(yaw_rate*16.4)>>2;
 
-    // P controller for angular position
-    float roll_rate_setpoint = kc_roll*(roll_setpoint - roll);
-    float pitch_rate_setpoint = kc_pitch*(pitch_setpoint - pitch);
+    // PITCH & ROLL
+    for(axis=0;axis<2;axis++) {
+      rc = rcCommand[axis]<<1;
+      error = rc - gyroData[axis];
+      errorGyroI[axis]  = constrain(errorGyroI[axis]+error,-16000,+16000);       // WindUp   16 bits is ok here
+      if (abs(gyroData[axis])>640) errorGyroI[axis] = 0;
+  
+      ITerm = (errorGyroI[axis]>>7)*ki>>6;                        // 16 bits is ok here 16000/125 = 128 ; 128*250 = 32000
+  
+      PTerm = (rc*kp)>>6;
+  
+      PTerm -= (gyroData[axis]*kp)>>6; // 32 bits is needed for calculation   
+  
+      delta          = gyroData[axis] - lastGyro[axis];  // 16 bits is ok here, the dif between 2 consecutive gyro reads is limited to 800
+      lastGyro[axis] = gyroData[axis];
+      DTerm          = delta1[axis]+delta2[axis]+delta;
+      delta2[axis]   = delta1[axis];
+      delta1[axis]   = delta;
+   
+      DTerm = (DTerm*kd)>>5;        // 32 bits is needed for calculation
+  
+      axisPID[axis] =  PTerm + ITerm - DTerm;
+    }
     
-    if(throttle >= 0.1*MAX_PWM)
-    {
-      // PD controller for angular velocity - roll
-      float roll_rate_error = roll_rate_setpoint - roll_rate;
-      float roll_rate_error_diff = (roll_rate_error - prev_roll_rate_error)/dt;
-      prev_roll_rate_error = roll_rate_error;
-      float roll_pid = kp_roll_rate*roll_rate_error + kd_roll_rate*roll_rate_error_diff;
-
-      // PD controller for angular velocity - pitch
-      float pitch_rate_error = pitch_rate_setpoint - pitch_rate;
-      float pitch_rate_error_diff = (pitch_rate_error - prev_pitch_rate_error)/dt;
-      prev_pitch_rate_error = pitch_rate_error;
-      float pitch_pid = kp_pitch_rate*pitch_rate_error + kd_pitch_rate*pitch_rate_error_diff;
-
-      // PD controller for angular velocity - yaw
-      float yaw_rate_error = yaw_setpoint - yaw_rate;
-      float yaw_rate_error_diff = (yaw_rate_error - prev_yaw_rate_error)/dt;
-      prev_yaw_rate_error = yaw_rate_error;
-      float yaw_pid = kp_yaw_rate*yaw_rate_error + kd_yaw_rate*yaw_rate_error_diff;
-
-      // Control law signals mixer according to quad X configuration
-      ma = throttle - roll_pid/4.0 + pitch_pid/4.0 + yaw_pid/4.0;
-      mb = throttle + roll_pid/4.0 + pitch_pid/4.0 - yaw_pid/4.0;
-      mc = throttle + roll_pid/4.0 - pitch_pid/4.0 + yaw_pid/4.0;
-      md = throttle - roll_pid/4.0 - pitch_pid/4.0 - yaw_pid/4.0;
-    }
-    else
-    {
-      ma = 0;
-      mb = 0;
-      mc = 0;
-      md = 0;
-    }
+    Serial.print(gyroData[PITCH]);
+    Serial.print(" ");
+    Serial.println(axisPID[PITCH]);
 
     // If not under emergency stop, apply pwm
     if(!eStop)
     {
       
+      /*
       ma = 0;
       mb = 0;
       mc = 0;
@@ -476,6 +406,7 @@ void loop(void)
       ledcWrite(ledChannelB, mb);
       ledcWrite(ledChannelC, mc);
       ledcWrite(ledChannelD, md);
+      */
     }
 
     // Log some values
@@ -487,13 +418,21 @@ void loop(void)
     //Serial.print(throttle/100, 0);
     //Serial.print(" ");
     
+    /*
     Serial.print(tmp_roll_rate);
     Serial.print(" ");
     Serial.print(tmp_pitch_rate);
     Serial.print(" ");
     Serial.println(tmp_yaw_rate);
+    */
+
+    /*Serial.print(tmp_roll);
+    Serial.print(" ");
+    Serial.println(tmp_pitch);*/
     
     
     update_pid = 0;
+    float elapsed_time = micros() - begining_time;
+    //Serial.println(elapsed_time, 0);
   }
 }
