@@ -352,11 +352,11 @@ void loop(void)
 
   int16_t PTerm = 0,ITerm = 0,DTerm, PTermACC, ITermACC;
 
-  uint8_t kp = 33;
+  uint8_t kp = 12;//33
   uint8_t ki = 30;
   uint8_t kd = 23;
 
-  uint8_t level_kp = 90;
+  uint8_t level_kp = 45;//90
   uint8_t level_ki = 10;
   uint8_t level_kd = 100;
 
@@ -408,7 +408,7 @@ void loop(void)
 
     // PITCH & ROLL
     for(axis=0;axis<2;axis++) {
-      rc = rcCommand[axis]<<1;
+      rc = rcCommand[axis]*0.3;//rcCommand[axis]<<1;
       error = rc - gyroData[axis];
       errorGyroI[axis]  = constrain(errorGyroI[axis]+error,-16000,+16000);       // WindUp   16 bits is ok here
       if (abs(gyroData[axis])>640) errorGyroI[axis] = 0;
@@ -418,9 +418,9 @@ void loop(void)
       PTerm = (rc*kp)>>6;
 
       // ANGLE MOde PID
-      if(true){
+      if(false){
         // 50 degrees max inclination
-        errorAngle         = constrain(rc,-500,+500) - angle[axis]; //16 bits is ok here
+        errorAngle         = constrain(rcCommand[axis],-300,+300) - angle[axis]; //16 bits is ok here
         errorAngleI[axis]  = constrain(errorAngleI[axis]+errorAngle,-10000,+10000);                                                // WindUp     //16 bits is ok here
   
         PTermACC           = errorAngle*level_kp>>7; // 32 bits is needed for calculation: errorAngle*P8 could exceed 32768   16 bits is ok for result
