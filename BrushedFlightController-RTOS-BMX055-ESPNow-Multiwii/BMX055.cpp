@@ -20,8 +20,8 @@ void BMX055::acc_init()
   // Set G range to 0x03 = +/- 2g, 0x08 = +/- 8g, needs to be in 2g for fast offset compnesation
   acc_write(AM_PMU_RANGE, 0x03);
 
-  // St bandwidth to 0x08 = 7.81Hz, 0x0B = 62.5
-  acc_write(AM_PMU_BW, 0x0B);
+  // St bandwidth to 0x08 = 7.81Hz, 0x09 = 15.63, 0x0B = 62.5
+  acc_write(AM_PMU_BW, 0x09); // previous = 0x0B
 
   // Completely disable FOC and reset offsets
   //acc_write(AM_OFC_CTRL, 0x00);
@@ -55,12 +55,11 @@ void BMX055::gyr_init()
   delay(4);
   //delay(2);
 
-  // Set range to 0x03 = +/- 250 deg/s, 0x02 =+/- 500deg/s
-  gyr_write(G_RANGE, 0x02);
-  //gyr_write(G_RANGE, 0x02);
+  // Set range to 0x03 = +/- 250 deg/s, 0x02 =+/- 500deg/s, 0x01 = +/- 1000deg/s
+  gyr_write(G_RANGE, 0x02); // previous 0x02
 
   // 0x05 = 100Hz ODR and lp-filter at 12Hz. 0x04 = 200Hz lpf at 23Hz. 0x03 = 400Hz lpf at 47Hz
-  gyr_write(G_BW, 0x04); //05
+  gyr_write(G_BW, 0x05); //previous value was 0x04
 
   //RATE_HBW
   gyr_write(G_RATE_HBW, 0x00); // Enables data shadowinf and filtered output
@@ -159,19 +158,19 @@ void BMX055::get_acc_data()
 
 void BMX055::get_gyr_data()
 {
-    int16_t xd = gyr_read(G_RATE_X_LSB+1)<<8;
-    xd |= gyr_read(G_RATE_X_LSB);
-    xd = twos_comp(xd, 16);
+    int16_t xd = gyr_read(G_RATE_X_LSB+1)<<8 | gyr_read(G_RATE_X_LSB);
+    //xd |= gyr_read(G_RATE_X_LSB);
+    //xd = twos_comp(xd, 16);
     gyroscope.x = (float) xd;
 
-    int16_t yd = gyr_read(G_RATE_Y_LSB+1)<<8;
-    yd |= gyr_read(G_RATE_Y_LSB);
-    yd = twos_comp(yd, 16);
+    int16_t yd = gyr_read(G_RATE_Y_LSB+1)<<8 | gyr_read(G_RATE_Y_LSB);
+    //yd |= gyr_read(G_RATE_Y_LSB);
+    //yd = twos_comp(yd, 16);
     gyroscope.y = (float) yd;
 
-    int16_t zd = gyr_read(G_RATE_Z_LSB+1)<<8;
-    zd |= gyr_read(G_RATE_Z_LSB);
-    zd = twos_comp(zd, 16);
+    int16_t zd = gyr_read(G_RATE_Z_LSB+1)<<8 | gyr_read(G_RATE_Z_LSB);
+    //zd |= gyr_read(G_RATE_Z_LSB);
+    //zd = twos_comp(zd, 16);
     gyroscope.z = (float) zd;
 }
 
@@ -623,7 +622,7 @@ int16_t BMX055::twos_comp(uint16_t val, uint8_t bits)
     /*if((val & (1 << (bits - 1))) != 0)
         val = val - (1 << bits);
     return val;*/
-    int mask = pow(2, bits-1);
+    int mask = 1 << (bits-1);//pow(2, bits-1);
     return -(val & mask) + (val & ~mask);
 }
 
@@ -636,7 +635,7 @@ uint8_t BMX055::acc_read(uint8_t reg)
 
 uint8_t BMX055::acc_write(uint8_t reg, uint8_t data)
 {
-    uint8_t tx_data[1];
+    uint8_t tx_data[2];
     tx_data[0] = reg;
     tx_data[1] = data;
     return i2cset(Addr_Accel, tx_data, 2, true);
@@ -651,7 +650,7 @@ uint8_t BMX055::gyr_read(uint8_t reg)
 
 uint8_t BMX055::gyr_write(uint8_t reg, uint8_t data)
 {
-    uint8_t tx_data[1];
+    uint8_t tx_data[2];
     tx_data[0] = reg;
     tx_data[1] = data;
     return i2cset(Addr_Gyro, tx_data, 2, true);
@@ -666,7 +665,7 @@ uint8_t BMX055::mag_read(uint8_t reg)
 
 uint8_t BMX055::mag_write(uint8_t reg, uint8_t data)
 {
-    uint8_t tx_data[1];
+    uint8_t tx_data[2];
     tx_data[0] = reg;
     tx_data[1] = data;
     return i2cset(Addr_magnet, tx_data, 2, true);

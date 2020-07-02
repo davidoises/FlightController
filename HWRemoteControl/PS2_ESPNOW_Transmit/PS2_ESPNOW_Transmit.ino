@@ -4,7 +4,9 @@
 
 Psx ps2x;
 
-uint8_t receiverAddress[] = {0x84, 0x0D, 0x8E, 0x19, 0xE4, 0xA8};
+//uint8_t receiverAddress[] = {0x84, 0x0D, 0x8E, 0x19, 0xE4, 0xA8};
+uint8_t receiverAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}; // This address sends to all ESP now receivers
+//uint8_t receiverAddress[] = {0xD8, 0xA0, 0x1D, 0x5D, 0xFB, 0x04};
 
 typedef struct struct_message {
   uint8_t hr_stick;
@@ -97,5 +99,5 @@ void loop() {
 
   esp_now_send(receiverAddress, (uint8_t *) &controller_data, sizeof(controller_data));
 
-  delay(40);
+  delay(20);
 }
