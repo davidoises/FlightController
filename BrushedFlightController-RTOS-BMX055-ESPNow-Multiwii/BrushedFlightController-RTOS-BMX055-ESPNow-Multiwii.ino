@@ -35,14 +35,14 @@
 //#define DUTY_TO_PWM(x) ((float)x)*((float)MAX_PWM)/100.0
 
 // PID sampling
-#define PID_SAMPLING 2800
+#define PID_SAMPLING 3000//2800
 
 // Class objects for data acquisition and sensor fusion
 BMX055 imu = BMX055(AM_DEV, G_DEV, MAG_DEV, USE_MAG_CALIBRATION);
 SensorFusion orientation;
 
-// RF message structure
-typedef struct remote_message {
+// RF input message structure
+typedef struct received_message {
   uint8_t hr_stick;
   uint8_t vr_stick;
   uint8_t hl_stick;
@@ -57,9 +57,27 @@ typedef struct remote_message {
   uint8_t r_stick_button;
   uint8_t l_back_button;
   uint8_t r_back_button;
-} remote_message;
+} received_message;
 
-remote_message controller_data;
+received_message controller_data;
+
+// RF output message structure
+typedef struct sent_message {
+  float loop_time;
+  float process_time;
+  float acc_x;
+  float acc_y;
+  float acc_z;
+  float gyr_x;
+  float gyr_y;
+  float gyr_z;
+} sent_message;
+
+sent_message drone_data;
+
+uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+uint8_t update_telemetry;
 
 // RF interface variables
 unsigned long prev_rf_time = 0;
@@ -164,8 +182,14 @@ void rfLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinned 
       }
       msg_flag = 0;
     }
+
+    if(update_telemetry)
+    {
+      esp_now_send(broadcastAddress, (uint8_t *) &drone_data, sizeof(drone_data));
+      update_telemetry = 0;
+    }
     
-    vTaskDelay(20);
+    vTaskDelay(4);
   }
 }
 
@@ -303,7 +327,17 @@ void setup(void)
 
   // Callback for message recepion
   esp_now_register_recv_cb(OnDataRecv);
+
+  esp_now_peer_info_t peerInfo;
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = 0;  
+  peerInfo.encrypt = false;
   
+  // Add peer        
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    Serial.println("Failed to add peer");
+    return;
+  }
   
   //Serial.println(ESP.getFreeHeap());
 
@@ -364,16 +398,13 @@ void loop(void)
   if(update_pid)
   {
     // Simple loop time verification
+    unsigned long begining_time = micros();
     
-    /*
     unsigned long current_time = micros();
     float dt = current_time - prev_pid_time;
-    Serial.println(dt, 0);
+    //Serial.println(dt, 0);
     prev_pid_time = current_time;
-    */
     
-
-    //unsigned long begining_time = micros();
     
     if(rcData[THROTTLE] <= 1100)
     {
@@ -405,7 +436,7 @@ void loop(void)
 
     // PITCH & ROLL
     for(axis=0;axis<2;axis++) {
-      rc = rcCommand[axis]*0.1;//rcCommand[axis]*0.3//rcCommand[axis]<<1;
+      rc = rcCommand[axis]*0.3;//rcCommand[axis]*0.1//rcCommand[axis]<<1;
       error = rc - gyroData[axis];
       errorGyroI[axis]  = constrain(errorGyroI[axis]+error,-16000,+16000);       // WindUp   16 bits is ok here
       if (abs(gyroData[axis])>640) errorGyroI[axis] = 0;
@@ -511,7 +542,23 @@ void loop(void)
     
     
     update_pid = 0;
-    //float elapsed_time = micros() - begining_time;
+
+    float elapsed_time = micros() - begining_time;
+
+    // Telemetry update
+    drone_data.loop_time = dt;
+    drone_data.process_time = elapsed_time;
+    drone_data.acc_x = imu.accelerometer.x*imu.accelerometer.res;
+    drone_data.acc_y = imu.accelerometer.y*imu.accelerometer.res;
+    drone_data.acc_z = imu.accelerometer.z*imu.accelerometer.res;
+
+    drone_data.gyr_x = imu.gyroscope.x*imu.gyroscope.res;
+    drone_data.gyr_y = imu.gyroscope.y*imu.gyroscope.res;
+    drone_data.gyr_z = imu.gyroscope.z*imu.gyroscope.res;
+    
+    // Set this to 0 if not needed to send data
+    update_telemetry = 1;
+    
     //Serial.println(elapsed_time, 0);
   }
 }
