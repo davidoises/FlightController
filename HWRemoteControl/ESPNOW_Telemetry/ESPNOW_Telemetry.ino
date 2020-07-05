@@ -2,6 +2,7 @@
 #include <WiFi.h>
 
 uint8_t droneAddress[] = {0xD8, 0xA0, 0x1D, 0x5D, 0xFB, 0x04};
+uint8_t drone2Address[] = {0xD8, 0xA0, 0x1D, 0x55, 0xB3, 0xE8};
 
 // RF input message structure
 typedef struct sent_message {
@@ -27,12 +28,35 @@ unsigned long prev_time = 0;
 // callback function that will be executed when data is received
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 
+  bool drone1 = true;
+  bool drone2 = true;
   for(uint8_t i = 0; i < 6; i++)
   {
     if(mac[i] != droneAddress[i])
     {
-      return;
+      drone1 = false;
+      break;
+      //return;
     }
+    //Serial.println(mac[i], HEX);
+  }
+
+  if(!drone1)
+  {
+    for(uint8_t i = 0; i < 6; i++)
+    {
+      if(mac[i] != drone2Address[i])
+      {
+        drone2 = false;
+        break;
+        //return;
+      }
+    }
+  }
+
+  if(!drone1 && !drone2)
+  {
+    return;
   }
   
   memcpy(&drone_data, incomingData, sizeof(drone_data));

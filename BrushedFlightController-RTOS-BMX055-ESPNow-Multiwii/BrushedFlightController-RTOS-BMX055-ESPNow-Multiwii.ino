@@ -65,12 +65,16 @@ received_message controller_data;
 typedef struct sent_message {
   float loop_time;
   float process_time;
+  /*
   float acc_x;
   float acc_y;
   float acc_z;
   float gyr_x;
   float gyr_y;
   float gyr_z;
+  */
+  float pitch;
+  float roll;
 } sent_message;
 
 sent_message drone_data;
@@ -383,9 +387,9 @@ void loop(void)
 
   int16_t PTerm = 0,ITerm = 0,DTerm, PTermACC, ITermACC;
 
-  uint8_t kp = 12;//33
-  uint8_t ki = 30;
-  uint8_t kd = 23;
+  uint8_t kp = 5;//12;
+  uint8_t ki = 17;//30;
+  uint8_t kd = 52;//23;
 
   uint8_t level_kp = 45;//90
   uint8_t level_ki = 10;
@@ -436,7 +440,7 @@ void loop(void)
 
     // PITCH & ROLL
     for(axis=0;axis<2;axis++) {
-      rc = rcCommand[axis]*0.3;//rcCommand[axis]*0.1//rcCommand[axis]<<1;
+      rc = rcCommand[axis]*0.1;//rcCommand[axis]*0.3; = tri-blade//rcCommand[axis]*0.1 = dual-blade
       error = rc - gyroData[axis];
       errorGyroI[axis]  = constrain(errorGyroI[axis]+error,-16000,+16000);       // WindUp   16 bits is ok here
       if (abs(gyroData[axis])>640) errorGyroI[axis] = 0;
@@ -445,8 +449,8 @@ void loop(void)
   
       PTerm = (rc*kp)>>6;
 
-      angleCorrection[ROLL] = 30;
-      angleCorrection[PITCH] = -35;
+      angleCorrection[ROLL] = 0;
+      angleCorrection[PITCH] = 0;
 
       // ANGLE MOde PID
       if(false){
@@ -548,6 +552,7 @@ void loop(void)
     // Telemetry update
     drone_data.loop_time = dt;
     drone_data.process_time = elapsed_time;
+    /*
     drone_data.acc_x = imu.accelerometer.x*imu.accelerometer.res;
     drone_data.acc_y = imu.accelerometer.y*imu.accelerometer.res;
     drone_data.acc_z = imu.accelerometer.z*imu.accelerometer.res;
@@ -555,6 +560,9 @@ void loop(void)
     drone_data.gyr_x = imu.gyroscope.x*imu.gyroscope.res;
     drone_data.gyr_y = imu.gyroscope.y*imu.gyroscope.res;
     drone_data.gyr_z = imu.gyroscope.z*imu.gyroscope.res;
+    */
+    drone_data.roll = orientation.get_roll();
+    drone_data.pitch = orientation.get_pitch();
     
     // Set this to 0 if not needed to send data
     update_telemetry = 1;

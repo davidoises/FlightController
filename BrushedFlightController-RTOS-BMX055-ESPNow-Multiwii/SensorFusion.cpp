@@ -178,6 +178,10 @@ void SensorFusion::fuse_sensors(float ax, float ay, float az, float gx, float gy
   // x, y complementary filter for angles
   roll = 0.99*(roll + gyr_roll) + 0.01*acc_roll_av.sum/acc_roll_av.samples;
   pitch = 0.99*(pitch + gyr_pitch) + 0.01*acc_pitch_av.sum/acc_pitch_av.samples;
+
+  //Serial.print(roll * 180.0/PI);
+  //Serial.print(" ");
+  //Serial.println(pitch * 180.0/PI);
 }
 
 float SensorFusion::get_roll()
