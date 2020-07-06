@@ -4,9 +4,11 @@
 #include <Arduino.h>
 //#include <Wire.h>
 #include "i2c_wrapper.h"
+#include <EEPROM.h>
 
 #define MPU6050_DEFAULT_ADDRESS 0x68
-#define GYRO_DLPF_CFG   0 //Default settings LPF 256Hz/8000Hz sample
+//#define GYRO_DLPF_CFG   0 //Default settings LPF 256Hz/8000Hz sample
+#define GYRO_DLPF_CFG   5 // 10Hz LPF
 
 #define ACC_1G 512*8
 
@@ -17,6 +19,7 @@ class MPU
   public:
     uint16_t calibratingG;
     uint16_t calibratingA;
+    uint8_t calibrationFinished = 0;
 
     int16_t raw_acc[3];
     int16_t raw_gyr[3];

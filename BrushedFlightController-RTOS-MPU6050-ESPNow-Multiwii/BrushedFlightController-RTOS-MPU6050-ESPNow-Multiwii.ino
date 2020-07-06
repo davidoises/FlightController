@@ -4,7 +4,7 @@
 #include <WiFi.h>
 #include <EEPROM.h>
 
-#define EEPROM_SIZE sizeof(float)*2
+#define EEPROM_SIZE sizeof(int16_t)*3
 
 // HW Pins
 #define PWMA 32
@@ -191,75 +191,6 @@ void rfLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinned 
   }
 }
 
-void calibrateAcc()
-{
-  for(int i = 0; i < 200; i++)
-  {
-    imu.get_acc_data();
-    delay(5);
-  }
-  float initial_acc_roll = 0;
-  float initial_acc_pitch = 0;
-  for(int i = 0; i < 100; i++)
-  {
-    imu.get_acc_data();
-    double ax = imu.accelerometer.x;
-    double ay = imu.accelerometer.y;
-    double az = imu.accelerometer.z;
-    initial_acc_roll += atan2(ay, sqrt(pow(ax, 2) + pow(az, 2)));
-    initial_acc_pitch += atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2)));
-    //initial_acc += az*imu.accelerometer.res;
-    delay(4);
-  }
-  initial_acc_roll /= 100;
-  initial_acc_pitch /= 100;
-
-  int address = 0;
-
-  EEPROM.put(address, initial_acc_roll);
-  //EEPROM.commit();
-  address += sizeof(float);
-  EEPROM.put(address, initial_acc_pitch);
-  EEPROM.commit();
-
-  orientation.set_acc_offsets(initial_acc_roll, initial_acc_pitch);
-
-  /*
-  Serial.print(initial_acc_roll, 6);
-  Serial.print(" ");
-  Serial.println(initial_acc_pitch, 6);
-  delay(5000);
-  */
-}
-
-void initalAngle()
-{
-  for(int i = 0; i < 200; i++)
-  {
-    imu.get_acc_data();
-    delay(5);
-  }
-  double initial_acc_roll = 0;
-  double initial_acc_pitch = 0;
-  for(int i = 0; i < 100; i++)
-  {
-    imu.get_acc_data();
-    double ax = imu.accelerometer.x;
-    double ay = imu.accelerometer.y;
-    double az = imu.accelerometer.z;
-    initial_acc_roll += atan2(ay, sqrt(pow(ax, 2) + pow(az, 2))) - orientation.roll_offset;
-    initial_acc_pitch += atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2))) - orientation.pitch_offset;
-    //initial_acc += az*imu.accelerometer.res;
-    delay(4);
-  }
-  initial_acc_roll /= 100;
-  initial_acc_pitch /= 100;
-  Serial.print(initial_acc_roll*180.0/PI);
-  Serial.print(" ");
-  Serial.println(initial_acc_pitch*180.0/PI);
-  orientation.init(initial_acc_roll, initial_acc_pitch, MAG_TARGET);
-}
-
 void setup(void)
 {
   // Start UART Bus
@@ -299,19 +230,23 @@ void setup(void)
   // IMU intialization and calibration
   imu.initialize();
 
-  //calibrateAcc();
-
-  float roll_offset = 0;
-  float pitch_offset = 0;
+  int16_t ax_offset = 0;
+  int16_t ay_offset = 0;
+  int16_t az_offset = 0;
 
   int address = 0;
-  EEPROM.get(address, roll_offset);
-  address += sizeof(float);
-  EEPROM.get(address, pitch_offset);
-  
-  orientation.set_acc_offsets(roll_offset, pitch_offset); // This should be read from an EEPROM
+  EEPROM.get(address, ax_offset);
+  address += sizeof(int16_t);
+  EEPROM.get(address, ay_offset);
+  address += sizeof(int16_t);
+  EEPROM.get(address, az_offset);
 
-  initalAngle();
+  imu.accZero[0] = ax_offset;
+  imu.accZero[1] = ay_offset;
+  imu.accZero[2] = az_offset;
+
+  imu.calibratingG = 512;
+  //imu.calibratingA = 512;
   
   // Set device as a Wi-Fi Station
   WiFi.mode(WIFI_STA);
@@ -352,8 +287,6 @@ void setup(void)
     1,              /* Priority of the task */
     &rf_handle,           /* Task handle. */
     0);             /* Core where the task should run */
-
-  digitalWrite(LED_PIN, LOW);
   
   // Start pid timer
   timerAlarmEnable(pid_timer);
@@ -379,10 +312,10 @@ void loop(void)
   static int16_t lastGyro[2] = {0,0};
 
   int16_t PTerm = 0,ITerm = 0,DTerm, PTermACC, ITermACC;
-
-  uint8_t kp = 5;//12;
-  uint8_t ki = 17;//30;
-  uint8_t kd = 52;//23;
+  //              //mini//big  
+  uint8_t kp = 12;//5;//12;
+  uint8_t ki = 30;//17;//30;
+  uint8_t kd = 23;//52;//23;
 
   uint8_t level_kp = 45;//90
   uint8_t level_ki = 10;
@@ -391,6 +324,12 @@ void loop(void)
   uint8_t yaw_kp = 68;
   uint8_t yaw_ki = 45;
   uint8_t yaw_kd = 0;
+
+  if(imu.calibrationFinished == 1)
+  {
+    digitalWrite(LED_PIN, LOW);
+    imu.calibrationFinished = 0;
+  }
   
   if(update_pid)
   {
@@ -412,31 +351,18 @@ void loop(void)
       errorAngleI[PITCH] = 0;
     }
     
-    imu.get_gyr_data();
-    imu.get_acc_data();
+    imu.Gyro_getADC();
+    imu.ACC_getADC();
 
-    orientation.fuse_sensors(imu.accelerometer.x, imu.accelerometer.y, imu.accelerometer.z,
-                            imu.gyroscope.x*imu.gyroscope.res, imu.gyroscope.y*imu.gyroscope.res, imu.gyroscope.z*imu.gyroscope.res);
-
-    int16_t angle[2];
-    angle[ROLL] = orientation.get_roll()*180.0*10.0/PI;
-    angle[PITCH] = orientation.get_pitch()*180.0*10.0/PI;
-
-    roll_rate = roll_rate*0.7 + imu.gyroscope.x*imu.gyroscope.res*0.3;
-    pitch_rate = pitch_rate*0.7 + imu.gyroscope.y*imu.gyroscope.res*0.3;
-    yaw_rate = yaw_rate*0.7 + imu.gyroscope.z*imu.gyroscope.res*0.3;
+    // This outpus angle and gyrSmooth arrays
+    getEstimatedAttitude(imu.raw_acc, imu.raw_gyr);
     
-    int16_t gyroData[3];
-    gyroData[ROLL] = (int16_t)(roll_rate*16.4)>>2;
-    gyroData[PITCH] = (int16_t)(pitch_rate*16.4)>>2;
-    gyroData[YAW] = (int16_t)(yaw_rate*16.4)>>2;
-
     // PITCH & ROLL
     for(axis=0;axis<2;axis++) {
-      rc = rcCommand[axis]*0.1;//rcCommand[axis]*0.3; = tri-blade//rcCommand[axis]*0.1 = dual-blade
-      error = rc - gyroData[axis];
+      rc = rcCommand[axis]*0.3;//rcCommand[axis]*0.3; = tri-blade//rcCommand[axis]*0.1 = dual-blade or mini blade
+      error = rc - gyrSmooth[axis];
       errorGyroI[axis]  = constrain(errorGyroI[axis]+error,-16000,+16000);       // WindUp   16 bits is ok here
-      if (abs(gyroData[axis])>640) errorGyroI[axis] = 0;
+      if (abs(gyrSmooth[axis])>640) errorGyroI[axis] = 0;
   
       ITerm = (errorGyroI[axis]>>7)*ki>>6;                        // 16 bits is ok here 16000/125 = 128 ; 128*250 = 32000
   
@@ -462,10 +388,10 @@ void loop(void)
         PTerm              = PTermACC;
       }
   
-      PTerm -= (gyroData[axis]*kp)>>6; // 32 bits is needed for calculation   
+      PTerm -= (gyrSmooth[axis]*kp)>>6; // 32 bits is needed for calculation   
   
-      delta          = gyroData[axis] - lastGyro[axis];  // 16 bits is ok here, the dif between 2 consecutive gyro reads is limited to 800
-      lastGyro[axis] = gyroData[axis];
+      delta          = gyrSmooth[axis] - lastGyro[axis];  // 16 bits is ok here, the dif between 2 consecutive gyro reads is limited to 800
+      lastGyro[axis] = gyrSmooth[axis];
       DTerm          = delta1[axis]+delta2[axis]+delta;
       delta2[axis]   = delta1[axis];
       delta1[axis]   = delta;
@@ -481,7 +407,7 @@ void loop(void)
   
     rc = rcCommand[YAW] * 30  >> 5;
 
-    error = rc - gyroData[YAW];
+    error = rc - gyrSmooth[YAW];
     errorGyroI_YAW  += error*yaw_ki;
     errorGyroI_YAW  = constrain(errorGyroI_YAW, 2-((int32_t)1<<28), -2+((int32_t)1<<28));
     if (abs(rc) > 50) errorGyroI_YAW = 0;
@@ -531,12 +457,17 @@ void loop(void)
     //Serial.print(" ");
     //Serial.println(angle[PITCH]/10.0);
 
-    //Serial.print(gyroData[ROLL]);
+    //Serial.print(gyrSmooth[ROLL]);
     //Serial.print(" ");
-    //Serial.println(gyroData[PITCH]);
+    //Serial.print(gyrSmooth[PITCH]);
+    //Serial.print(" ");
+    //Serial.println(gyrSmooth[YAW]);
 
-    
-    
+    //Serial.print(accSmooth[ROLL]);
+    //Serial.print(" ");
+    //Serial.print(accSmooth[PITCH]);
+    //Serial.print(" ");
+    //Serial.println(accSmooth[YAW]);
     
     update_pid = 0;
 
@@ -554,8 +485,8 @@ void loop(void)
     drone_data.gyr_y = imu.gyroscope.y*imu.gyroscope.res;
     drone_data.gyr_z = imu.gyroscope.z*imu.gyroscope.res;
     */
-    drone_data.roll = orientation.get_roll();
-    drone_data.pitch = orientation.get_pitch();
+    drone_data.roll = angle[ROLL]*PI/1800.0;
+    drone_data.pitch = angle[PITCH]*PI/1800.0;
     
     // Set this to 0 if not needed to send data
     update_telemetry = 1;

@@ -48,6 +48,10 @@ void MPU::GYRO_Common()
       gyroZero[axis]=g[axis]>>9;
     }
     calibratingG--;
+    if(calibratingG == 0)
+    {
+      calibrationFinished = 1;
+    }
   }
 
   for (axis = 0; axis < 3; axis++) {
@@ -71,7 +75,15 @@ void MPU::ACC_Common()
     }
     if (calibratingA == 0) {
       accZero[2] -= ACC_1G;   // shift Z down by ACC_1G and store values in EEPROM at end of calibration
-      // TODO: Write to EEPROM these values
+      
+      int address = 0;
+
+      EEPROM.put(address, accZero[0]);
+      address += sizeof(int16_t);
+      EEPROM.put(address, accZero[1]);
+      address += sizeof(int16_t);
+      EEPROM.put(address, accZero[2]);
+      EEPROM.commit();
     }
   }
 
