@@ -7,9 +7,9 @@
 #define EEPROM_SIZE sizeof(float)*2
 
 // BMX055 IMU addresses
-#define AM_DEV 0x18
-#define G_DEV 0x68
-#define MAG_DEV 0x10
+#define AM_DEV 0x19//0x18
+#define G_DEV 0x69//0x68
+#define MAG_DEV 0x13////0x10
 
 // HW Pins
 #define PWMA 32
@@ -35,7 +35,7 @@
 //#define DUTY_TO_PWM(x) ((float)x)*((float)MAX_PWM)/100.0
 
 // PID sampling
-#define PID_SAMPLING 3000//2800
+#define PID_SAMPLING 2800
 
 // Class objects for data acquisition and sensor fusion
 BMX055 imu = BMX055(AM_DEV, G_DEV, MAG_DEV, USE_MAG_CALIBRATION);
@@ -387,9 +387,9 @@ void loop(void)
 
   int16_t PTerm = 0,ITerm = 0,DTerm, PTermACC, ITermACC;
 
-  uint8_t kp = 5;//12;
-  uint8_t ki = 17;//30;
-  uint8_t kd = 52;//23;
+  uint8_t kp = 12;//5;//12;
+  uint8_t ki = 30;//17;//30;
+  uint8_t kd = 23;//52;//23;
 
   uint8_t level_kp = 45;//90
   uint8_t level_ki = 10;
@@ -429,18 +429,25 @@ void loop(void)
     angle[ROLL] = orientation.get_roll()*180.0*10.0/PI;
     angle[PITCH] = orientation.get_pitch()*180.0*10.0/PI;
 
-    roll_rate = roll_rate*0.7 + imu.gyroscope.x*imu.gyroscope.res*0.3;
-    pitch_rate = pitch_rate*0.7 + imu.gyroscope.y*imu.gyroscope.res*0.3;
-    yaw_rate = yaw_rate*0.7 + imu.gyroscope.z*imu.gyroscope.res*0.3;
-    
+    roll_rate = roll_rate*0.7 + ((int16_t)(imu.gyroscope.x*imu.gyroscope.res*16.4)>>2)*0.3;
+    pitch_rate = pitch_rate*0.7 + ((int16_t)(imu.gyroscope.y*imu.gyroscope.res*16.4)>>2)*0.3;
+    yaw_rate = yaw_rate*0.7 + ((int16_t)(imu.gyroscope.z*imu.gyroscope.res*16.4)>>2)*0.3;
+
+    /*
     int16_t gyroData[3];
     gyroData[ROLL] = (int16_t)(roll_rate*16.4)>>2;
     gyroData[PITCH] = (int16_t)(pitch_rate*16.4)>>2;
     gyroData[YAW] = (int16_t)(yaw_rate*16.4)>>2;
+    */
+
+    int16_t gyroData[3];
+    gyroData[ROLL] = (int16_t)roll_rate;
+    gyroData[PITCH] = (int16_t)pitch_rate;
+    gyroData[YAW] = (int16_t)yaw_rate;
 
     // PITCH & ROLL
     for(axis=0;axis<2;axis++) {
-      rc = rcCommand[axis]*0.1;//rcCommand[axis]*0.3; = tri-blade//rcCommand[axis]*0.1 = dual-blade
+      rc = rcCommand[axis]*0.3;//rcCommand[axis]*0.3; = tri-blade//rcCommand[axis]*0.1 = dual-blade
       error = rc - gyroData[axis];
       errorGyroI[axis]  = constrain(errorGyroI[axis]+error,-16000,+16000);       // WindUp   16 bits is ok here
       if (abs(gyroData[axis])>640) errorGyroI[axis] = 0;
@@ -538,12 +545,13 @@ void loop(void)
     //Serial.print(" ");
     //Serial.println(angle[PITCH]/10.0);
 
-    //Serial.print(gyroData[ROLL]);
-    //Serial.print(" ");
-    //Serial.println(gyroData[PITCH]);
+    /*Serial.print(gyroData[ROLL]);
+    Serial.print(" ");
+    Serial.println(gyroData[PITCH]);*/
 
-    
-    
+    //Serial.print(roll_rate);
+    //Serial.print(" ");
+    //Serial.println(pitch_rate);
     
     update_pid = 0;
 

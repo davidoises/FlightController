@@ -1,5 +1,7 @@
 #include "IMU.h"
 
+int16_t gyrFiltered[3];
+
 typedef struct fp_vector {
     float X;
     float Y;
@@ -67,14 +69,24 @@ void getEstimatedAttitude(int16_t* acc, int16_t* gyr)
   // Initialization
   for (axis = 0; axis < 3; axis++) {
     gyrSmooth[axis] = 0.7*gyrSmooth[axis] + 0.3*gyr[axis];
-    accSmooth[axis]  = 0.93*accSmooth[axis] + 0.07*acc[axis];
+    gyrFiltered[axis] = 0.95*gyrFiltered[axis] + 0.05*gyr[axis];
+    accSmooth[axis]  = 0.99*accSmooth[axis] + 0.01*acc[axis];
     
     accMag += (int32_t)accSmooth[axis] * accSmooth[axis]; 
 
     // This could/shoule be done using filtered gyro
-    deltaGyroAngle[axis] = gyr[axis] * scale;
+    //deltaGyroAngle[axis] = gyr[axis] * scale;
+    deltaGyroAngle[axis] = gyrFiltered[axis] * scale;
   }
-
+  
+  /*
+  Serial.print(accSmooth[0]);
+  Serial.print(" ");
+  Serial.print(accSmooth[1]);
+  Serial.print(" ");
+  Serial.println(accSmooth[2]);
+  */
+  
   accMag = accMag * 100 / ((int32_t)ACC_1G * ACC_1G);
 
   rotateV(&EstG.V, deltaGyroAngle);

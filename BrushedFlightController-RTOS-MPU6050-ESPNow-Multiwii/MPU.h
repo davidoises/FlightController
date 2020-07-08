@@ -8,7 +8,8 @@
 
 #define MPU6050_DEFAULT_ADDRESS 0x68
 //#define GYRO_DLPF_CFG   0 //Default settings LPF 256Hz/8000Hz sample
-#define GYRO_DLPF_CFG   5 // 10Hz LPF
+//#define GYRO_DLPF_CFG   5 // 10Hz LPF
+#define GYRO_DLPF_CFG   6 // 5Hz LPF
 
 #define ACC_1G 512*8
 

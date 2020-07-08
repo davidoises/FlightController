@@ -21,7 +21,7 @@ void BMX055::acc_init()
   acc_write(AM_PMU_RANGE, 0x03);
 
   // St bandwidth to 0x08 = 7.81Hz, 0x09 = 15.63, 0x0B = 62.5
-  acc_write(AM_PMU_BW, 0x09); // previous = 0x0B
+  acc_write(AM_PMU_BW, 0x08); // previous = 0x09
 
   // Completely disable FOC and reset offsets
   //acc_write(AM_OFC_CTRL, 0x00);
@@ -55,7 +55,7 @@ void BMX055::gyr_init()
   delay(4);
   //delay(2);
 
-  // Set range to 0x03 = +/- 250 deg/s, 0x02 =+/- 500deg/s, 0x01 = +/- 1000deg/s
+  // Set range to 0x03 = +/- 250 deg/s, 0x02 =+/- 500deg/s, 0x01 = +/- 1000deg/s, 0x00 = +- 2000deg/s
   gyr_write(G_RANGE, 0x02); // previous 0x02
 
   // 0x05 = 100Hz ODR and lp-filter at 12Hz. 0x04 = 200Hz lpf at 23Hz. 0x03 = 400Hz lpf at 47Hz
@@ -140,7 +140,25 @@ void BMX055::mag_read_trim_registers()
 
 void BMX055::get_acc_data()
 {
-    int16_t xd = acc_read(AM_ACCD_X_LSB+1)<<4;
+    uint8_t raw[6];
+    i2cget(Addr_Accel, AM_ACCD_X_LSB, raw, 6);
+
+    int16_t xd = raw[1]<<4;
+    xd |= (raw[0] & 0xF0)>>4;
+    xd = twos_comp(xd, 12);
+    accelerometer.x = (float) xd;
+
+    int16_t yd = raw[3]<<4;
+    yd |= (raw[2] & 0xF0)>>4;
+    yd = twos_comp(yd, 12);
+    accelerometer.y = (float) yd;
+
+    int16_t zd = raw[5]<<4;
+    zd |= (raw[4] & 0xF0)>>4;
+    zd = twos_comp(zd, 12);
+    accelerometer.z = (float) zd;
+  
+    /*int16_t xd = acc_read(AM_ACCD_X_LSB+1)<<4;
     xd |= (acc_read(AM_ACCD_X_LSB) & 0xF0)>>4;
     xd = twos_comp(xd, 12);
     accelerometer.x = (float) xd;
@@ -154,10 +172,25 @@ void BMX055::get_acc_data()
     zd |= (acc_read(AM_ACCD_Z_LSB) & 0xF0)>>4;
     zd = twos_comp(zd, 12);
     accelerometer.z = (float) zd;
+    */
 }
 
 void BMX055::get_gyr_data()
 {
+    uint8_t raw[6];
+    i2cget(Addr_Gyro, G_RATE_X_LSB, raw, 6);
+
+  
+    int16_t xd = raw[1]<<8 | raw[0];
+    gyroscope.x = (float) xd;
+
+    int16_t yd = raw[3]<<8 | raw[2];
+    gyroscope.y = (float) yd;
+
+    int16_t zd = raw[5]<<8 | raw[4];
+    gyroscope.z = (float) zd;
+    
+    /*
     int16_t xd = gyr_read(G_RATE_X_LSB+1)<<8 | gyr_read(G_RATE_X_LSB);
     //xd |= gyr_read(G_RATE_X_LSB);
     //xd = twos_comp(xd, 16);
@@ -172,6 +205,7 @@ void BMX055::get_gyr_data()
     //zd |= gyr_read(G_RATE_Z_LSB);
     //zd = twos_comp(zd, 16);
     gyroscope.z = (float) zd;
+    */
 }
 
 void BMX055::get_mag_data()

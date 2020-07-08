@@ -18,6 +18,7 @@ typedef struct sent_message {
   */
   float pitch;
   float roll;
+  float acc_z;
 } sent_message;
 
 sent_message drone_data;
@@ -73,9 +74,10 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   //Serial.print(" ");
   //Serial.println(drone_data.acc_z);
 
-  Serial.print(drone_data.roll*180.0/PI);
-  Serial.print(" ");
-  Serial.println(drone_data.pitch*180.0/PI);
+  //Serial.print(drone_data.roll*180.0/PI);
+  //Serial.print(" ");
+  //Serial.println(drone_data.pitch*180.0/PI);
+  Serial.println(drone_data.acc_z);
 }
  
 void setup() {

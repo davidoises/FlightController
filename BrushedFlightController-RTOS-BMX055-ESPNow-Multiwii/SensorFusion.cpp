@@ -155,6 +155,11 @@ void SensorFusion::fuse_sensors(float ax, float ay, float az, float gx, float gy
   if(az_av.index == az_av.samples) az_av.index = 0;
   az = az_av.sum/az_av.samples;
 
+  //Serial.print(ax);
+  //Serial.print(" ");
+  //Serial.print(ay);
+  //Serial.print(" ");
+  //Serial.println(az);
 
   // x, y angles from gyroscope
   float gyr_roll = gx*t_delta*(PI/180.0);

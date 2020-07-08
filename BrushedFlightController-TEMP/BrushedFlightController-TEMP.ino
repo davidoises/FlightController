@@ -7,9 +7,9 @@
 #define EEPROM_SIZE sizeof(float)*2
 
 // BMX055 IMU addresses
-#define AM_DEV 0x18
-#define G_DEV 0x68
-#define MAG_DEV 0x10
+#define AM_DEV 0x19//0x18
+#define G_DEV 0x69//0x68
+#define MAG_DEV 0x13////0x10
 
 // HW Pins
 #define PWMA 32
@@ -35,7 +35,7 @@
 //#define DUTY_TO_PWM(x) ((float)x)*((float)MAX_PWM)/100.0
 
 // PID sampling
-#define PID_SAMPLING 3000//2800
+#define PID_SAMPLING 2800
 
 // Class objects for data acquisition and sensor fusion
 BMX055 imu = BMX055(AM_DEV, G_DEV, MAG_DEV, USE_MAG_CALIBRATION);
@@ -75,6 +75,7 @@ typedef struct sent_message {
   */
   float pitch;
   float roll;
+  float acc_z;
 } sent_message;
 
 sent_message drone_data;
@@ -108,8 +109,6 @@ float acc_y = 0;
 float acc_z = 0;
 float roll = 0;
 float pitch = 0;
-float roll_offset = 0;
-float pitch_offset = 0;
 
 // PID calculation variables
 unsigned long prev_pid_time = 0;
@@ -272,9 +271,10 @@ void initalAngle()
   Serial.print(initial_acc_roll*180.0/PI);
   Serial.print(" ");
   Serial.println(initial_acc_pitch*180.0/PI);
+  orientation.init(initial_acc_roll, initial_acc_pitch, MAG_TARGET);
+
   roll = initial_acc_roll;
   pitch = initial_acc_pitch;
-  orientation.init(initial_acc_roll, initial_acc_pitch, MAG_TARGET);
 }
 
 void setup(void)
@@ -319,8 +319,8 @@ void setup(void)
 
   //calibrateAcc();
 
-  //float roll_offset = 0;
-  //float pitch_offset = 0;
+  float roll_offset = 0;
+  float pitch_offset = 0;
 
   int address = 0;
   EEPROM.get(address, roll_offset);
@@ -398,11 +398,11 @@ void loop(void)
 
   int16_t PTerm = 0,ITerm = 0,DTerm, PTermACC, ITermACC;
 
-  uint8_t kp = 12;//33
-  uint8_t ki = 30;
-  uint8_t kd = 23;
+  uint8_t kp = 12;//5;//12;
+  uint8_t ki = 30;//17;//30;
+  uint8_t kd = 23;//52;//23;
 
-  uint8_t level_kp = 30;//45;//90
+  uint8_t level_kp = 45;//90
   uint8_t level_ki = 10;
   uint8_t level_kd = 100;
 
@@ -433,46 +433,36 @@ void loop(void)
     imu.get_gyr_data();
     imu.get_acc_data();
 
-    //orientation.fuse_sensors(imu.accelerometer.x, imu.accelerometer.y, imu.accelerometer.z,
-    //                        imu.gyroscope.x*imu.gyroscope.res, imu.gyroscope.y*imu.gyroscope.res, imu.gyroscope.z*imu.gyroscope.res);
-
-    
 
     acc_x = 0.99*acc_x + 0.01*imu.accelerometer.x*imu.accelerometer.res;
     acc_y = 0.99*acc_y + 0.01*imu.accelerometer.y*imu.accelerometer.res;
     acc_z = 0.99*acc_z + 0.01*imu.accelerometer.z*imu.accelerometer.res;
 
-    float acc_roll = atan2(acc_y, sqrt(acc_x*acc_x + acc_z*acc_z)) - roll_offset;
-    float acc_pitch = atan2(-1.0*acc_x, sqrt(acc_y*acc_y + acc_z*acc_z)) - pitch_offset;
+    float acc_roll = atan2(acc_y, sqrt(acc_x*acc_x + acc_z*acc_z)) - orientation.roll_offset;
+    float acc_pitch = atan2(-1.0*acc_x, sqrt(acc_y*acc_y + acc_z*acc_z)) - orientation.pitch_offset;
 
     gyr_roll = gyr_roll*0.95 + 0.05*imu.gyroscope.x*imu.gyroscope.res;
     gyr_pitch = gyr_pitch*0.95 + 0.05*imu.gyroscope.y*imu.gyroscope.res;
 
-    roll_rate = roll_rate*0.7 + imu.gyroscope.x*imu.gyroscope.res*0.3;
-    pitch_rate = pitch_rate*0.7 + imu.gyroscope.y*imu.gyroscope.res*0.3;
-    yaw_rate = yaw_rate*0.7 + imu.gyroscope.z*imu.gyroscope.res*0.3;
-
-    roll = 0.999*(roll + gyr_roll*dt*PI/(1000000.0*180.0)) + 0.001*acc_roll;
-    pitch = 0.999*(pitch + gyr_pitch*dt*PI/(1000000.0*180.0)) + 0.001*acc_pitch;
-
+    roll = 0.9*(roll + gyr_roll*dt*PI/(1000000.0*180.0)) + 0.1*acc_roll;
+    pitch = 0.9*(pitch + gyr_pitch*dt*PI/(1000000.0*180.0)) + 0.1*acc_pitch;
+    
     int16_t angle[2];
     angle[ROLL] = roll*180.0*10.0/PI;
     angle[PITCH] = pitch*180.0*10.0/PI;
 
-    /*
-    Serial.print(roll*180.0/PI);
-    Serial.print(" ");
-    Serial.println(pitch*180.0/PI);
-    */
-    
+    roll_rate = roll_rate*0.7 + ((int16_t)(imu.gyroscope.x*imu.gyroscope.res*16.4)>>2)*0.3;
+    pitch_rate = pitch_rate*0.7 + ((int16_t)(imu.gyroscope.y*imu.gyroscope.res*16.4)>>2)*0.3;
+    yaw_rate = yaw_rate*0.7 + ((int16_t)(imu.gyroscope.z*imu.gyroscope.res*16.4)>>2)*0.3;
+
     int16_t gyroData[3];
-    gyroData[ROLL] = (int16_t)(roll_rate*16.4)>>2;
-    gyroData[PITCH] = (int16_t)(pitch_rate*16.4)>>2;
-    gyroData[YAW] = (int16_t)(yaw_rate*16.4)>>2;
+    gyroData[ROLL] = (int16_t)roll_rate;
+    gyroData[PITCH] = (int16_t)pitch_rate;
+    gyroData[YAW] = (int16_t)yaw_rate;
 
     // PITCH & ROLL
     for(axis=0;axis<2;axis++) {
-      rc = rcCommand[axis]*0.3;//rcCommand[axis]*0.1//rcCommand[axis]<<1;
+      rc = rcCommand[axis]*0.3;//rcCommand[axis]*0.3; = tri-blade//rcCommand[axis]*0.1 = dual-blade
       error = rc - gyroData[axis];
       errorGyroI[axis]  = constrain(errorGyroI[axis]+error,-16000,+16000);       // WindUp   16 bits is ok here
       if (abs(gyroData[axis])>640) errorGyroI[axis] = 0;
@@ -570,12 +560,13 @@ void loop(void)
     //Serial.print(" ");
     //Serial.println(angle[PITCH]/10.0);
 
-    //Serial.print(gyroData[ROLL]);
-    //Serial.print(" ");
-    //Serial.println(gyroData[PITCH]);
+    /*Serial.print(gyroData[ROLL]);
+    Serial.print(" ");
+    Serial.println(gyroData[PITCH]);*/
 
-    
-    
+    //Serial.print(roll_rate);
+    //Serial.print(" ");
+    //Serial.println(pitch_rate);
     
     update_pid = 0;
 
@@ -595,6 +586,7 @@ void loop(void)
     */
     drone_data.roll = roll;
     drone_data.pitch = pitch;
+    drone_data.acc_z = acc_z;
     
     // Set this to 0 if not needed to send data
     update_telemetry = 1;

@@ -459,7 +459,7 @@ void loop(void)
 
     //Serial.print(gyrSmooth[ROLL]);
     //Serial.print(" ");
-    //Serial.print(gyrSmooth[PITCH]);
+    //Serial.println(gyrSmooth[PITCH]);
     //Serial.print(" ");
     //Serial.println(gyrSmooth[YAW]);
 
