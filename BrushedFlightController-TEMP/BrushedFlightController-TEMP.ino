@@ -3,8 +3,9 @@
 #include <esp_now.h>
 #include <WiFi.h>
 #include <EEPROM.h>
+#include "Estimates.h"
 
-#define EEPROM_SIZE sizeof(float)*2
+#define EEPROM_SIZE sizeof(float)*3
 
 // BMX055 IMU addresses
 #define AM_DEV 0x19//0x18
@@ -97,6 +98,10 @@ enum rc {
   YAW,
   THROTTLE,
 };
+
+// Accelerometer calibration variables
+uint8_t calibrate_acc = 0;
+float acc_calibration[3] = {0,0,0};
 
 // Orientation measurements
 float gyr_roll = 0;
@@ -205,78 +210,6 @@ void rfLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinned 
   }
 }
 
-void calibrateAcc()
-{
-  for(int i = 0; i < 200; i++)
-  {
-    imu.get_acc_data();
-    delay(5);
-  }
-  float initial_acc_roll = 0;
-  float initial_acc_pitch = 0;
-  for(int i = 0; i < 100; i++)
-  {
-    imu.get_acc_data();
-    double ax = imu.accelerometer.x;
-    double ay = imu.accelerometer.y;
-    double az = imu.accelerometer.z;
-    initial_acc_roll += atan2(ay, sqrt(pow(ax, 2) + pow(az, 2)));
-    initial_acc_pitch += atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2)));
-    //initial_acc += az*imu.accelerometer.res;
-    delay(4);
-  }
-  initial_acc_roll /= 100;
-  initial_acc_pitch /= 100;
-
-  int address = 0;
-
-  EEPROM.put(address, initial_acc_roll);
-  //EEPROM.commit();
-  address += sizeof(float);
-  EEPROM.put(address, initial_acc_pitch);
-  EEPROM.commit();
-
-  orientation.set_acc_offsets(initial_acc_roll, initial_acc_pitch);
-
-  /*
-  Serial.print(initial_acc_roll, 6);
-  Serial.print(" ");
-  Serial.println(initial_acc_pitch, 6);
-  delay(5000);
-  */
-}
-
-void initalAngle()
-{
-  for(int i = 0; i < 200; i++)
-  {
-    imu.get_acc_data();
-    delay(5);
-  }
-  double initial_acc_roll = 0;
-  double initial_acc_pitch = 0;
-  for(int i = 0; i < 100; i++)
-  {
-    imu.get_acc_data();
-    double ax = imu.accelerometer.x;
-    double ay = imu.accelerometer.y;
-    double az = imu.accelerometer.z;
-    initial_acc_roll += atan2(ay, sqrt(pow(ax, 2) + pow(az, 2))) - orientation.roll_offset;
-    initial_acc_pitch += atan2(-1.0*ax, sqrt(pow(ay, 2) + pow(az, 2))) - orientation.pitch_offset;
-    //initial_acc += az*imu.accelerometer.res;
-    delay(4);
-  }
-  initial_acc_roll /= 100;
-  initial_acc_pitch /= 100;
-  Serial.print(initial_acc_roll*180.0/PI);
-  Serial.print(" ");
-  Serial.println(initial_acc_pitch*180.0/PI);
-  orientation.init(initial_acc_roll, initial_acc_pitch, MAG_TARGET);
-
-  roll = initial_acc_roll;
-  pitch = initial_acc_pitch;
-}
-
 void setup(void)
 {
   // Start UART Bus
@@ -317,19 +250,11 @@ void setup(void)
   imu.acc_init();
   imu.gyr_init();
 
-  //calibrateAcc();
-
-  float roll_offset = 0;
-  float pitch_offset = 0;
-
-  int address = 0;
-  EEPROM.get(address, roll_offset);
-  address += sizeof(float);
-  EEPROM.get(address, pitch_offset);
   
-  orientation.set_acc_offsets(roll_offset, pitch_offset); // This should be read from an EEPROM
-
-  initalAngle();
+  //calibrate_acc = 1;
+  
+  int address = 0;
+  EEPROM.get(address, acc_calibration);
   
   // Set device as a Wi-Fi Station
   WiFi.mode(WIFI_STA);
@@ -429,47 +354,56 @@ void loop(void)
       errorAngleI[ROLL] = 0;
       errorAngleI[PITCH] = 0;
     }
-    
-    imu.get_gyr_data();
-    imu.get_acc_data();
 
+    get_gyr_compensated_data();
+    get_acc_compensated_data();
 
     acc_x = 0.99*acc_x + 0.01*imu.accelerometer.x*imu.accelerometer.res;
     acc_y = 0.99*acc_y + 0.01*imu.accelerometer.y*imu.accelerometer.res;
     acc_z = 0.99*acc_z + 0.01*imu.accelerometer.z*imu.accelerometer.res;
 
-    float acc_roll = atan2(acc_y, sqrt(acc_x*acc_x + acc_z*acc_z)) - orientation.roll_offset;
-    float acc_pitch = atan2(-1.0*acc_x, sqrt(acc_y*acc_y + acc_z*acc_z)) - orientation.pitch_offset;
+    float accMag = 100.0*(acc_x*acc_x + acc_y*acc_y + acc_z*acc_z)/(9.81*9.81);
+
+    float acc_roll = atan2(acc_y, sqrt(acc_x*acc_x + acc_z*acc_z));
+    float acc_pitch = atan2(-1.0*acc_x, sqrt(acc_y*acc_y + acc_z*acc_z));
 
     gyr_roll = gyr_roll*0.95 + 0.05*imu.gyroscope.x*imu.gyroscope.res;
     gyr_pitch = gyr_pitch*0.95 + 0.05*imu.gyroscope.y*imu.gyroscope.res;
 
-    roll = 0.9*(roll + gyr_roll*dt*PI/(1000000.0*180.0)) + 0.1*acc_roll;
-    pitch = 0.9*(pitch + gyr_pitch*dt*PI/(1000000.0*180.0)) + 0.1*acc_pitch;
+    //if (72 < accMag && accMag < 133) {
+    if (80 < accMag && accMag < 120) {
+        roll = 0.9*(roll + gyr_roll*dt*PI/(1000000.0*180.0)) + 0.1*acc_roll;
+        pitch = 0.9*(pitch + gyr_pitch*dt*PI/(1000000.0*180.0)) + 0.1*acc_pitch;
+    }
+    else
+    {
+      roll = roll + gyr_roll*dt*PI/(1000000.0*180.0);
+      pitch = pitch + gyr_pitch*dt*PI/(1000000.0*180.0); 
+    }
 
     /**** Beginning rotation tests *******/
     float world_acc_z = acc_z*cos(pitch)*cos(roll) - acc_x*sin(pitch) + acc_y*cos(pitch)*sin(roll);
-    float mag = sqrtf(acc_x*acc_x + acc_y*acc_y + acc_z*acc_z);
+    
 
-    Serial.print(acc_z);
+    Serial.print(roll*180.0/PI);
     Serial.print(" ");
-    Serial.print(world_acc_z);
-    Serial.print(" ");
-    Serial.println(mag);
+    Serial.println(pitch*180.0/PI);
 
     //TODO:
+    /*
     1. Complementary filter depends on the magnitude of acceleration:
       i. normalize acc_smooth dividing by ideal magnitude ACC_1G and get magnitude from normalized vector:
         a. (acc_x/ACC_1G)^2 + (acc_y/ACC_1G)^2 + (acc_z/ACC_1G)^2
       ii. Previous calculation ideally returns 1 so no need to take square root
       iii. Since normalization is based on ideal magnitud, previous calculation wont be 1 under external accelerations
       iv. if calculated magnitud is: 0.72 < mag < 1.33 we trus accelerometer for complementary filter
-    2. Rotate accelerometer measuremts before filtering from drone body frame to world frame
+    // Got Here
+    2. Rotate accelerometer measuremts before filtering from drone body frame to world frame 
     3. Substract ACC_1G from world_acc_z. This way we only have left external accelerations
     4. Apply LPF to this acceleration
     5. Apply deadband to this acceleration
     6. Consecutively add this acceleration, a counter and the time for future averaging
-    
+    */
     
     /**** Ending rotation tests *******/
     

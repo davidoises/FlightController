@@ -373,6 +373,7 @@ void BMX055::get_acc_settings()
       break;
   }
   accelerometer.res = ((float) accelerometer.range)*9.81*2.0/pow(2,12);
+  ACC_1G = (1<<11)/accelerometer.range;
 
   uint8_t bw = acc_read(AM_PMU_BW);
   switch(bw)
@@ -437,6 +438,10 @@ void BMX055::get_acc_settings()
   Serial.print("Z offset is ");
   Serial.print(accelerometer.z_offset);
   Serial.println(" m/s^2");
+  Serial.print("1G value is ");
+  Serial.print(ACC_1G);
+  Serial.println(" bits/G");
+  
 #endif
 }
 

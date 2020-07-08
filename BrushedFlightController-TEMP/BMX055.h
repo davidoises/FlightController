@@ -5,7 +5,7 @@
 #include "math.h"
 #include "i2c_wrapper.h"
 
-#define DEBUG 1
+#define DEBUG 0
 
 #define CALIBRATE_YAW 1
 #define USE_MAG_CALIBRATION 1
@@ -141,6 +141,7 @@ class BMX055
     
     // Gyroscope functions and struct
     SensorVars gyroscope;
+    int16_t ACC_1G;
     void gyr_init();
     void get_gyr_data();
     void get_gyr_settings();
