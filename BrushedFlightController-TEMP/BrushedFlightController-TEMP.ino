@@ -35,7 +35,7 @@
 //#define DUTY_TO_PWM(x) ((float)x)*((float)MAX_PWM)/100.0
 
 // PID sampling
-#define PID_SAMPLING 2800
+#define PID_SAMPLING 10000//2800
 
 // Class objects for data acquisition and sensor fusion
 BMX055 imu = BMX055(AM_DEV, G_DEV, MAG_DEV, USE_MAG_CALIBRATION);
@@ -446,6 +446,32 @@ void loop(void)
 
     roll = 0.9*(roll + gyr_roll*dt*PI/(1000000.0*180.0)) + 0.1*acc_roll;
     pitch = 0.9*(pitch + gyr_pitch*dt*PI/(1000000.0*180.0)) + 0.1*acc_pitch;
+
+    /**** Beginning rotation tests *******/
+    float world_acc_z = acc_z*cos(pitch)*cos(roll) - acc_x*sin(pitch) + acc_y*cos(pitch)*sin(roll);
+    float mag = sqrtf(acc_x*acc_x + acc_y*acc_y + acc_z*acc_z);
+
+    Serial.print(acc_z);
+    Serial.print(" ");
+    Serial.print(world_acc_z);
+    Serial.print(" ");
+    Serial.println(mag);
+
+    //TODO:
+    1. Complementary filter depends on the magnitude of acceleration:
+      i. normalize acc_smooth dividing by ideal magnitude ACC_1G and get magnitude from normalized vector:
+        a. (acc_x/ACC_1G)^2 + (acc_y/ACC_1G)^2 + (acc_z/ACC_1G)^2
+      ii. Previous calculation ideally returns 1 so no need to take square root
+      iii. Since normalization is based on ideal magnitud, previous calculation wont be 1 under external accelerations
+      iv. if calculated magnitud is: 0.72 < mag < 1.33 we trus accelerometer for complementary filter
+    2. Rotate accelerometer measuremts before filtering from drone body frame to world frame
+    3. Substract ACC_1G from world_acc_z. This way we only have left external accelerations
+    4. Apply LPF to this acceleration
+    5. Apply deadband to this acceleration
+    6. Consecutively add this acceleration, a counter and the time for future averaging
+    
+    
+    /**** Ending rotation tests *******/
     
     int16_t angle[2];
     angle[ROLL] = roll*180.0*10.0/PI;
