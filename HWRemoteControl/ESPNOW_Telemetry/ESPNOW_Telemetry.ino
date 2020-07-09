@@ -65,7 +65,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 
   //Serial.print(drone_data.loop_time);
   //Serial.print(" ");
-  //Serial.println(drone_data.process_time);
+  //Serial.print(drone_data.process_time);
   //Serial.print(" ");
   
   //Serial.print(drone_data.acc_x);

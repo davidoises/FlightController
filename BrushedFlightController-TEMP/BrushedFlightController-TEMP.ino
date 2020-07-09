@@ -1,5 +1,5 @@
 #include "BMX055.h"
-#include "SensorFusion.h"
+//#include "SensorFusion.h"
 #include <esp_now.h>
 #include <WiFi.h>
 #include <EEPROM.h>
@@ -36,11 +36,11 @@
 //#define DUTY_TO_PWM(x) ((float)x)*((float)MAX_PWM)/100.0
 
 // PID sampling
-#define PID_SAMPLING 10000//2800
+#define PID_SAMPLING 2800
 
 // Class objects for data acquisition and sensor fusion
 BMX055 imu = BMX055(AM_DEV, G_DEV, MAG_DEV, USE_MAG_CALIBRATION);
-SensorFusion orientation;
+//SensorFusion orientation;
 
 // RF input message structure
 typedef struct received_message {
@@ -104,16 +104,14 @@ uint8_t calibrate_acc = 0;
 float acc_calibration[3] = {0,0,0};
 
 // Orientation measurements
-float gyr_roll = 0;
-float gyr_pitch = 0;
 float roll_rate = 0;
 float pitch_rate = 0;
 float yaw_rate = 0;
-float acc_x = 0;
-float acc_y = 0;
-float acc_z = 0;
+
+// Estimates.h externed variables
 float roll = 0;
 float pitch = 0;
+float acczSmooth = 0;
 
 // PID calculation variables
 unsigned long prev_pid_time = 0;
@@ -358,36 +356,14 @@ void loop(void)
     get_gyr_compensated_data();
     get_acc_compensated_data();
 
-    acc_x = 0.99*acc_x + 0.01*imu.accelerometer.x*imu.accelerometer.res;
-    acc_y = 0.99*acc_y + 0.01*imu.accelerometer.y*imu.accelerometer.res;
-    acc_z = 0.99*acc_z + 0.01*imu.accelerometer.z*imu.accelerometer.res;
-
-    float accMag = 100.0*(acc_x*acc_x + acc_y*acc_y + acc_z*acc_z)/(9.81*9.81);
-
-    float acc_roll = atan2(acc_y, sqrt(acc_x*acc_x + acc_z*acc_z));
-    float acc_pitch = atan2(-1.0*acc_x, sqrt(acc_y*acc_y + acc_z*acc_z));
-
-    gyr_roll = gyr_roll*0.95 + 0.05*imu.gyroscope.x*imu.gyroscope.res;
-    gyr_pitch = gyr_pitch*0.95 + 0.05*imu.gyroscope.y*imu.gyroscope.res;
-
-    //if (72 < accMag && accMag < 133) {
-    if (80 < accMag && accMag < 120) {
-        roll = 0.9*(roll + gyr_roll*dt*PI/(1000000.0*180.0)) + 0.1*acc_roll;
-        pitch = 0.9*(pitch + gyr_pitch*dt*PI/(1000000.0*180.0)) + 0.1*acc_pitch;
-    }
-    else
-    {
-      roll = roll + gyr_roll*dt*PI/(1000000.0*180.0);
-      pitch = pitch + gyr_pitch*dt*PI/(1000000.0*180.0); 
-    }
+    attitude_estimation(dt);
+    acceleration_estimation(dt);
 
     /**** Beginning rotation tests *******/
-    float world_acc_z = acc_z*cos(pitch)*cos(roll) - acc_x*sin(pitch) + acc_y*cos(pitch)*sin(roll);
-    
 
-    Serial.print(roll*180.0/PI);
-    Serial.print(" ");
-    Serial.println(pitch*180.0/PI);
+    float tempz = applyDeadband(acczSmooth, imu.ACC_1G/32);
+
+    //Serial.println(acczSmooth);
 
     //TODO:
     /*
@@ -397,12 +373,14 @@ void loop(void)
       ii. Previous calculation ideally returns 1 so no need to take square root
       iii. Since normalization is based on ideal magnitud, previous calculation wont be 1 under external accelerations
       iv. if calculated magnitud is: 0.72 < mag < 1.33 we trus accelerometer for complementary filter
-    // Got Here
     2. Rotate accelerometer measuremts before filtering from drone body frame to world frame 
     3. Substract ACC_1G from world_acc_z. This way we only have left external accelerations
     4. Apply LPF to this acceleration
     5. Apply deadband to this acceleration
-    6. Consecutively add this acceleration, a counter and the time for future averaging
+    // Got Here
+    6. Simulate calling the altitude estimation function with the correct loop time
+    7. Consecutively add this acceleration, a counter and the time for future averaging
+    8. Average the sum of accelartions inside the altitude estimation function
     */
     
     /**** Ending rotation tests *******/
@@ -546,7 +524,7 @@ void loop(void)
     */
     drone_data.roll = roll;
     drone_data.pitch = pitch;
-    drone_data.acc_z = acc_z;
+    drone_data.acc_z = acczSmooth;
     
     // Set this to 0 if not needed to send data
     update_telemetry = 1;
