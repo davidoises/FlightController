@@ -25,5 +25,6 @@ void get_acc_compensated_data();
 float applyDeadband(float value, float deadband);
 void attitude_estimation(float dt);
 void acceleration_estimation(float dt);
+uint8_t altitude_estimation();
 
 #endif

@@ -114,3 +114,19 @@ void acceleration_estimation(float dt)
 
   acczSmooth = 0.95*acczSmooth + 0.05*world_acc_z;
 }
+
+#define UPDATE_INTERVAL 25000   // 40hz update rate (20hz LPF on acc)
+
+uint8_t altitude_estimation()
+{
+  static uint32_t previousT;
+  uint32_t currentT = micros();
+  float dt = currentT - previousT;
+
+  // Update with a constant period
+  if (dt < UPDATE_INTERVAL)
+    return 0;
+  previousT = currentT;
+
+  // Do Stuff here
+}

@@ -308,6 +308,7 @@ void setup(void)
 
 void loop(void)
 {
+  static uint8_t taskOrder=0;
 
   uint8_t axis;
   int16_t rc;
@@ -353,10 +354,26 @@ void loop(void)
       errorAngleI[PITCH] = 0;
     }
 
+    switch(taskOrder)
+    {
+      case 0:
+        taskOrder++;
+        // Baro update: baro update should returno no-zero when it was able to process. if not just follow through next cases
+        if(0)break;
+      case 1:
+        taskOrder=0;
+        altitude_estimation();
+        break;
+    }
+
+    
+    // Get IMU data
     get_gyr_compensated_data();
     get_acc_compensated_data();
 
+    // Estimate euler angles, just used to get world frame acceleration
     attitude_estimation(dt);
+    // Get world frame z acceleration for AltHold
     acceleration_estimation(dt);
 
     /**** Beginning rotation tests *******/
