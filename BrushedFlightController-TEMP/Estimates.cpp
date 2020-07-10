@@ -186,6 +186,8 @@ uint8_t altitude_estimation()
   static int32_t baroGroundAltitude = 0;
 
   int32_t BaroAlt_tmp;
+  static int32_t lastBaroAlt;
+  int32_t baroVel;
   static float vel = 0.0f;  
   static float accAlt = 0.0f;
   
@@ -229,11 +231,7 @@ uint8_t altitude_estimation()
   //accAlt = accAlt * 0.965 + (float)BaroAlt * 0.035;      // complementary filter for altitude estimation (baro & acc)
 
   accAlt = (vel_acc * 0.5f) * acc_dt + vel * acc_dt;   // integrate velocity to get distance (x= a/2 * t^2)
-  EstAlt = (EstAlt + accAlt) * 0.965 + (float)BaroAlt * 0.035;      // complementary filter for altitude estimation (baro & acc)
-  
-  //Serial.print(BaroAlt);
-  //Serial.print(" ");
-  //Serial.println(EstAlt);
+  EstAlt = (EstAlt + accAlt) * 0.9 + (float)BaroAlt * 0.1;      // complementary filter for altitude estimation (baro & acc)
 
   vel += vel_acc;
 
@@ -241,5 +239,19 @@ uint8_t altitude_estimation()
   accSum = 0;
   accTimeSum = 0;
   accSumCount = 0;
-  
+
+  baroVel = (BaroAlt - lastBaroAlt) * 1000000.0f / dt;
+  lastBaroAlt = BaroAlt;
+
+  baroVel = constrain(baroVel, -1500, 1500);    // constrain baro velocity +/- 1500cm/s
+  baroVel = applyDeadband(baroVel, 10);         // to reduce noise near zero
+
+  vel = vel * 0.985 + baroVel * 0.015;
+
+  //Serial.print(BaroAlt);
+  //Serial.print(" ");
+  //Serial.println(EstAlt);
+
+  //Serial.println(vel);
+
 }
