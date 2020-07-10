@@ -63,9 +63,9 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   memcpy(&drone_data, incomingData, sizeof(drone_data));
 
 
-  //Serial.print(drone_data.loop_time);
-  //Serial.print(" ");
-  //Serial.print(drone_data.process_time);
+  Serial.print(drone_data.loop_time);
+  Serial.print(" ");
+  Serial.println(drone_data.process_time);
   //Serial.print(" ");
   
   //Serial.print(drone_data.acc_x);
@@ -77,7 +77,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   //Serial.print(drone_data.roll*180.0/PI);
   //Serial.print(" ");
   //Serial.println(drone_data.pitch*180.0/PI);
-  Serial.println(drone_data.acc_z);
+  //Serial.println(drone_data.acc_z);
 }
  
 void setup() {

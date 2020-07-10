@@ -114,6 +114,8 @@ float pitch = 0;
 
 // Vertical acceleration
 float acczSmooth = 0;
+int32_t BaroPID = 0;
+int32_t errorVelocityI = 0;
 
 // Baro calibration
 uint8_t calibrate_alt;
@@ -392,6 +394,14 @@ void loop(void)
     roll_rate = roll_rate*0.7 + ((int16_t)(imu.gyroscope.x*imu.gyroscope.res*16.4)>>2)*0.3;
     pitch_rate = pitch_rate*0.7 + ((int16_t)(imu.gyroscope.y*imu.gyroscope.res*16.4)>>2)*0.3;
     yaw_rate = yaw_rate*0.7 + ((int16_t)(imu.gyroscope.z*imu.gyroscope.res*16.4)>>2)*0.3;
+
+    //****PENGIND STEPS****//
+    /*
+    1. Integrgate Baro Mode button from controller
+    //Integrate Baro calibration on arm -> Not necessary
+    2. Reset PID stuff on baro mode activation and save throttle value
+    3. Add PID calculation to loop
+    */
 
     int16_t gyroData[3];
     gyroData[ROLL] = (int16_t)roll_rate;

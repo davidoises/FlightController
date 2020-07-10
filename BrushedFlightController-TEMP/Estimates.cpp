@@ -189,7 +189,10 @@ uint8_t altitude_estimation()
   static int32_t lastBaroAlt;
   int32_t baroVel;
   static float vel = 0.0f;  
+  static float lpf_vel = 0.0f;
   static float accAlt = 0.0f;
+  static float accZ_tmp = 0;
+  static float accZ_old = 0.0f;
   
   static uint32_t previousT;
   uint32_t currentT = micros();
@@ -219,11 +222,11 @@ uint8_t altitude_estimation()
 
   BaroAlt_tmp = lrintf((1.0f - powf((float)(baroPressureSum / (21 - 1)) / 101325.0f, 0.190295f)) * 4433000.0f); // in cm
   BaroAlt_tmp -= baroGroundAltitude;
-  BaroAlt = lrintf((float)BaroAlt * 0.6 + (float)BaroAlt_tmp * 0.4); // additional LPF to reduce baro noise
-  //BaroAlt = lrintf((float)BaroAlt * 0.99 + (float)BaroAlt_tmp * 0.01); // additional LPF to reduce baro noise
+  //BaroAlt = lrintf((float)BaroAlt * 0.6 + (float)BaroAlt_tmp * 0.4); // additional LPF to reduce baro noise
+  BaroAlt = lrintf((float)BaroAlt * 0.9 + (float)BaroAlt_tmp * 0.1); // additional LPF to reduce baro noise
 
   float acc_dt = accTimeSum * 1e-6f;
-  float accZ_tmp = (float)accSum / (float)accSumCount;
+  accZ_tmp = 0.7*accZ_tmp + 0.3*(float)accSum / (float)accSumCount;
 
   float vel_acc  = accZ_tmp * imu.accelerometer.res*100.0 * acc_dt; // vel diff in cm/s
 
@@ -245,13 +248,48 @@ uint8_t altitude_estimation()
 
   baroVel = constrain(baroVel, -1500, 1500);    // constrain baro velocity +/- 1500cm/s
   baroVel = applyDeadband(baroVel, 10);         // to reduce noise near zero
+  lpf_vel = 0.9*lpf_vel + 0.1*baroVel;
 
-  vel = vel * 0.985 + baroVel * 0.015;
-
+  vel = vel * 0.9 + lpf_vel * 0.1;
+  //vel = vel * 0.985 + baroVel * 0.015;
+  //lpf_vel = 0.7*lpf_vel + 0.3*vel;
+  int32_t vel_tmp = lrintf(vel);
   //Serial.print(BaroAlt);
   //Serial.print(" ");
   //Serial.println(EstAlt);
 
+  //Serial.print(baroVel);
+  //Serial.print(" ");
+  //Serial.println(lpf_vel);
+  
+  //Serial.print(accZ_tmp);
+  //Serial.print(" ");
   //Serial.println(vel);
 
+  int32_t error;
+  uint8_t vel_kp = 120;
+  uint8_t vel_ki = 45;
+  uint8_t vel_kd = 1;
+  
+  if(roll*180/PI < 60 && pitch*180/PI < 60)
+  {
+    // Proportianl term
+    error = 0 - vel_tmp;
+    BaroPID = constrain(vel_kp*error/32, -300, 300);
+
+    // Integral term
+    errorVelocityI += (vel_ki * error);
+    errorVelocityI = constrain(errorVelocityI, -(8196 * 200), (8196 * 200));
+    BaroPID += errorVelocityI / 8196;
+
+    // Derivative term
+    BaroPID -= constrain(vel_kd * (accZ_tmp + accZ_old) / 512, -150, 150);
+  }
+  else
+  {
+    BaroPID = 0;
+  }
+
+  accZ_old = accZ_tmp;
+  return 1;
 }

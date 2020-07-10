@@ -18,6 +18,8 @@ extern float acczSmooth;
 
 extern MS5611 altimeter;
 extern uint8_t calibrate_alt;
+extern int32_t BaroPID;
+extern int32_t errorVelocityI;
 
 void get_gyr_compensated_data();
 void get_acc_compensated_data();
