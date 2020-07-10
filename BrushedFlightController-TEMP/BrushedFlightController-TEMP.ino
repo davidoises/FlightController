@@ -1,4 +1,5 @@
 #include "BMX055.h"
+#include "MS5611.h"
 //#include "SensorFusion.h"
 #include <esp_now.h>
 #include <WiFi.h>
@@ -40,6 +41,7 @@
 
 // Class objects for data acquisition and sensor fusion
 BMX055 imu = BMX055(AM_DEV, G_DEV, MAG_DEV, USE_MAG_CALIBRATION);
+MS5611 altimeter = MS5611();
 //SensorFusion orientation;
 
 // RF input message structure
@@ -107,11 +109,14 @@ float acc_calibration[3] = {0,0,0};
 float roll_rate = 0;
 float pitch_rate = 0;
 float yaw_rate = 0;
-
-// Estimates.h externed variables
 float roll = 0;
 float pitch = 0;
+
+// Vertical acceleration
 float acczSmooth = 0;
+
+// Baro calibration
+uint8_t calibrate_alt;
 
 // PID calculation variables
 unsigned long prev_pid_time = 0;
@@ -248,8 +253,13 @@ void setup(void)
   imu.acc_init();
   imu.gyr_init();
 
-  
   //calibrate_acc = 1;
+
+  // Altimeter initialization and calibration
+  altimeter.begin(MS5611_ULTRA_HIGH_RES);
+  altimeter.requestTemperature(); // First request is for pressure
+
+  calibrate_alt = 1;
   
   int address = 0;
   EEPROM.get(address, acc_calibration);
@@ -358,8 +368,7 @@ void loop(void)
     {
       case 0:
         taskOrder++;
-        // Baro update: baro update should returno no-zero when it was able to process. if not just follow through next cases
-        if(0)break;
+        if(get_baro_data() != 0)break;
       case 1:
         taskOrder=0;
         altitude_estimation();
@@ -375,32 +384,6 @@ void loop(void)
     attitude_estimation(dt);
     // Get world frame z acceleration for AltHold
     acceleration_estimation(dt);
-
-    /**** Beginning rotation tests *******/
-
-    float tempz = applyDeadband(acczSmooth, imu.ACC_1G/32);
-
-    //Serial.println(acczSmooth);
-
-    //TODO:
-    /*
-    1. Complementary filter depends on the magnitude of acceleration:
-      i. normalize acc_smooth dividing by ideal magnitude ACC_1G and get magnitude from normalized vector:
-        a. (acc_x/ACC_1G)^2 + (acc_y/ACC_1G)^2 + (acc_z/ACC_1G)^2
-      ii. Previous calculation ideally returns 1 so no need to take square root
-      iii. Since normalization is based on ideal magnitud, previous calculation wont be 1 under external accelerations
-      iv. if calculated magnitud is: 0.72 < mag < 1.33 we trus accelerometer for complementary filter
-    2. Rotate accelerometer measuremts before filtering from drone body frame to world frame 
-    3. Substract ACC_1G from world_acc_z. This way we only have left external accelerations
-    4. Apply LPF to this acceleration
-    5. Apply deadband to this acceleration
-    // Got Here
-    6. Simulate calling the altitude estimation function with the correct loop time
-    7. Consecutively add this acceleration, a counter and the time for future averaging
-    8. Average the sum of accelartions inside the altitude estimation function
-    */
-    
-    /**** Ending rotation tests *******/
     
     int16_t angle[2];
     angle[ROLL] = roll*180.0*10.0/PI;

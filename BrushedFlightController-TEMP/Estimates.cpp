@@ -1,6 +1,16 @@
 #include "Estimates.h"
 
 uint16_t missing_samples = 0;
+float accSum = 0;
+float accTimeSum = 0;
+uint16_t accSumCount = 0;
+
+int32_t baroPressure = 0;
+int32_t baroTemperature = 0;
+uint32_t baroPressureSum = 0;
+uint16_t missing_alt_samples = 0;
+int32_t BaroAlt = 0;
+int32_t EstAlt;
 
 void get_gyr_compensated_data()
 {
@@ -55,6 +65,55 @@ void get_acc_compensated_data()
   imu.accelerometer.y -= acc_calibration[1];
   imu.accelerometer.z -= acc_calibration[2];
   
+}
+
+// cfg.baro_tab_size = 21;
+//#define BARO_TAB_SIZE_MAX   48
+void Baro_Common(void)
+{
+    static int32_t baroHistTab[48];
+    static int baroHistIdx;
+    int indexplus1;
+
+    indexplus1 = (baroHistIdx + 1);
+    if (indexplus1 == 21)
+        indexplus1 = 0;
+    baroHistTab[baroHistIdx] = baroPressure;
+    baroPressureSum += baroHistTab[baroHistIdx];
+    baroPressureSum -= baroHistTab[indexplus1];
+    baroHistIdx = indexplus1;
+}
+
+uint8_t get_baro_data()
+{
+  static int state = 0;
+  static uint32_t previousT;
+  uint32_t currentT = micros();
+  float dt = currentT - previousT;
+
+  if (dt < altimeter.ct*1000.0)
+    return 0;
+  previousT = currentT;
+
+  uint32_t readRawTemperature(void);
+      uint32_t readRawPressure(void);
+
+  if(!state)
+  {
+    altimeter.readRawTemperature();
+    altimeter.requestPressure();
+    Baro_Common(); // LPF using Rolling memory
+    state = 1;
+    return 1;
+  }
+  else//if(state)
+  {
+    altimeter.readRawPressure();
+    altimeter.requestTemperature();
+    altimeter.calculatePressure(&baroPressure, &baroTemperature);
+    state = 0;
+    return 2;
+  }
 }
 
 float applyDeadband(float value, float deadband)
@@ -113,12 +172,23 @@ void acceleration_estimation(float dt)
   world_acc_z -= imu.ACC_1G;
 
   acczSmooth = 0.95*acczSmooth + 0.05*world_acc_z;
+
+  accSum += applyDeadband(acczSmooth, imu.ACC_1G/32);
+  accTimeSum += dt;
+  accSumCount++;
 }
 
 #define UPDATE_INTERVAL 25000   // 40hz update rate (20hz LPF on acc)
 
 uint8_t altitude_estimation()
 {
+  static int32_t baroGroundPressure = 0;
+  static int32_t baroGroundAltitude = 0;
+
+  int32_t BaroAlt_tmp;
+  static float vel = 0.0f;  
+  static float accAlt = 0.0f;
+  
   static uint32_t previousT;
   uint32_t currentT = micros();
   float dt = currentT - previousT;
@@ -128,5 +198,48 @@ uint8_t altitude_estimation()
     return 0;
   previousT = currentT;
 
-  // Do Stuff here
+  if(calibrate_alt)
+  {
+    missing_alt_samples = BARO_CAL_SAMPLES;
+    calibrate_alt = 0;
+  }
+
+  if(missing_alt_samples > 0)
+  {
+
+    baroGroundPressure = 0.9*baroGroundPressure + 0.1*(baroPressureSum / (21 - 1));
+    baroGroundAltitude = (1.0f - powf(baroGroundPressure / 101325.0f, 0.190295f)) * 4433000.0f;
+
+    vel = 0;
+    accAlt = 0;
+    missing_alt_samples--;
+  }
+
+  BaroAlt_tmp = lrintf((1.0f - powf((float)(baroPressureSum / (21 - 1)) / 101325.0f, 0.190295f)) * 4433000.0f); // in cm
+  BaroAlt_tmp -= baroGroundAltitude;
+  BaroAlt = lrintf((float)BaroAlt * 0.6 + (float)BaroAlt_tmp * 0.4); // additional LPF to reduce baro noise
+  //BaroAlt = lrintf((float)BaroAlt * 0.99 + (float)BaroAlt_tmp * 0.01); // additional LPF to reduce baro noise
+
+  float acc_dt = accTimeSum * 1e-6f;
+  float accZ_tmp = (float)accSum / (float)accSumCount;
+
+  float vel_acc  = accZ_tmp * imu.accelerometer.res*100.0 * acc_dt; // vel diff in cm/s
+
+  //accAlt += (vel_acc * 0.5f) * acc_dt + vel * acc_dt;   // integrate velocity to get distance (x= a/2 * t^2)
+  //accAlt = accAlt * 0.965 + (float)BaroAlt * 0.035;      // complementary filter for altitude estimation (baro & acc)
+
+  accAlt = (vel_acc * 0.5f) * acc_dt + vel * acc_dt;   // integrate velocity to get distance (x= a/2 * t^2)
+  EstAlt = (EstAlt + accAlt) * 0.965 + (float)BaroAlt * 0.035;      // complementary filter for altitude estimation (baro & acc)
+  
+  //Serial.print(BaroAlt);
+  //Serial.print(" ");
+  //Serial.println(EstAlt);
+
+  vel += vel_acc;
+
+  //accSum_reset();
+  accSum = 0;
+  accTimeSum = 0;
+  accSumCount = 0;
+  
 }
