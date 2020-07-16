@@ -10,7 +10,6 @@ int32_t baroTemperature = 0;
 uint32_t baroPressureSum = 0;
 uint16_t missing_alt_samples = 0;
 int32_t BaroAlt = 0;
-int32_t EstAlt;
 
 void get_gyr_compensated_data()
 {
@@ -217,6 +216,7 @@ uint8_t altitude_estimation()
 
     vel = 0;
     accAlt = 0;
+    EstAlt = 0;
     missing_alt_samples--;
   }
 
@@ -267,14 +267,28 @@ uint8_t altitude_estimation()
   //Serial.println(vel);
 
   int32_t error;
-  uint8_t vel_kp = 120;
-  uint8_t vel_ki = 45;
-  uint8_t vel_kd = 1;
+  int32_t setVel;
+  uint8_t alt_p = 25;//50;
+  uint8_t vel_kp = 80;//50;//120;
+  uint8_t vel_ki = 0;//45;
+  uint8_t vel_kd = 200;//1;
   
   if(roll*180/PI < 60 && pitch*180/PI < 60)
   {
+    if(true)
+    {
+      error = constrain(AltitudeSetpoint-EstAlt, -500, 500);
+      error = applyDeadband(error, 10);
+      setVel = constrain((alt_p * error / 128), -300, +300); // limit velocity to +/- 3 m/s
+      //Serial.println(error);
+    }
+    else
+    {
+      setVel = 0;
+    }
+    
     // Proportianl term
-    error = 0 - vel_tmp;
+    error = setVel - vel_tmp;
     BaroPID = constrain(vel_kp*error/32, -300, 300);
 
     // Integral term
@@ -284,6 +298,11 @@ uint8_t altitude_estimation()
 
     // Derivative term
     BaroPID -= constrain(vel_kd * (accZ_tmp + accZ_old) / 512, -150, 150);
+
+    //Serial.print(BaroAlt);
+    //Serial.print(" ");
+    //Serial.println(EstAlt);
+    //Serial.println(vel_tmp);
   }
   else
   {

@@ -90,9 +90,13 @@ uint8_t update_telemetry;
 // RF interface variables
 unsigned long prev_rf_time = 0;
 uint8_t prev_stop = 0;
+uint8_t prev_mode = 0;
 uint8_t eStop = 1;
+uint8_t altHold = 0;
+uint8_t altHoldStart = 0;
 int16_t rcData[4];
 int16_t rcCommand[4];
+int16_t initalThrottle = 0;
 
 enum rc {
   ROLL,
@@ -116,6 +120,8 @@ float pitch = 0;
 float acczSmooth = 0;
 int32_t BaroPID = 0;
 int32_t errorVelocityI = 0;
+int32_t EstAlt = 0;
+int32_t AltitudeSetpoint = 0;
 
 // Baro calibration
 uint8_t calibrate_alt;
@@ -193,6 +199,18 @@ void rfLoop(void *pvParameters ) {  //task to be created by FreeRTOS and pinned 
         //eStop = !eStop;
       }
       prev_stop = temp_stop;
+
+      // AltHold switch
+      uint8_t temp_mode = controller_data.l_back_button;
+      if(temp_mode == 1 && prev_mode == 0)
+      {
+        altHold = !altHold;
+        if(altHold)
+        {
+          altHoldStart = 1;
+        }
+      }
+      prev_mode = temp_mode;
 
       if(rcData[THROTTLE] > 1550)
       {
@@ -377,6 +395,24 @@ void loop(void)
         break;
     }
 
+    if(altHoldStart)
+    {
+      altHoldStart = 0;
+      errorVelocityI = 0;
+      BaroPID = 0;
+      initalThrottle  = rcCommand[THROTTLE];
+      
+      AltitudeSetpoint = EstAlt;
+      //Serial.println(initalThrottle);
+    }
+
+    if(altHold)
+    {
+      //rcCommand[THROTTLE] = 1590;// Discharged battery
+      //rcCommand[THROTTLE] = 1540;// Full battery battery
+      rcCommand[THROTTLE] = 1565 + BaroPID;
+      //rcCommand[THROTTLE] = initalThrottle + BaroPID;
+    }
     
     // Get IMU data
     get_gyr_compensated_data();

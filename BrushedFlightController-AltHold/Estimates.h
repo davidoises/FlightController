@@ -20,6 +20,8 @@ extern MS5611 altimeter;
 extern uint8_t calibrate_alt;
 extern int32_t BaroPID;
 extern int32_t errorVelocityI;
+extern int32_t EstAlt;
+extern int32_t AltitudeSetpoint;
 
 void get_gyr_compensated_data();
 void get_acc_compensated_data();
