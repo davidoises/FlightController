@@ -356,6 +356,7 @@ void loop(void)
   int16_t error;
   int16_t delta;
   static int32_t errorGyroI_YAW;
+  static float newErrorGyroI_YAW;
   static int16_t errorGyroI[2] = {0,0};
   static float newErrorGyroI[2] = {0,0};
   static int16_t delta1[2],delta2[2];
@@ -380,6 +381,10 @@ void loop(void)
   uint8_t yaw_kp = 68;
   uint8_t yaw_ki = 45;
   uint8_t yaw_kd = 0;
+
+  float new_yaw_kp = 68;
+  float new_yaw_ki = 45;
+  float new_yaw_kd = 0;
   
   if(update_pid)
   {
@@ -401,6 +406,7 @@ void loop(void)
       newErrorGyroI[PITCH] = 0;
       
       errorGyroI_YAW = 0;
+      newErrorGyroI_YAW = 0;
     }
 
     switch(taskOrder)
@@ -450,19 +456,6 @@ void loop(void)
     pitch_rate = pitch_rate*0.7 + ((int16_t)(imu.gyroscope.y*imu.gyroscope.res*16.4)>>2)*0.3;
     yaw_rate = yaw_rate*0.7 + ((int16_t)(imu.gyroscope.z*imu.gyroscope.res*16.4)>>2)*0.3;
 
-    //****PENGIND STEPS****//
-    /*
-    1. Integrgate Baro Mode button from controller
-    //Integrate Baro calibration on arm -> Not necessary
-    2. Reset PID stuff on baro mode activation and save throttle value
-    3. Add PID calculation to loop
-    */
-
-    int16_t gyroData[3];
-    gyroData[ROLL] = (int16_t)roll_rate;
-    gyroData[PITCH] = (int16_t)pitch_rate;
-    gyroData[YAW] = (int16_t)yaw_rate;
-
     float newGyroData[3];
     newGyroData[ROLL] = roll_rate;
     newGyroData[PITCH] = pitch_rate;
@@ -497,18 +490,20 @@ void loop(void)
     //YAW
     #define GYRO_P_MAX 300
     #define GYRO_I_MAX 250
-  
-    rc = rcCommand[YAW] * 30  >> 5;
 
-    error = rc - gyroData[YAW];
-    errorGyroI_YAW  += error*yaw_ki;
-    errorGyroI_YAW  = constrain(errorGyroI_YAW, 2-((int32_t)1<<28), -2+((int32_t)1<<28));
-    if (abs(rc) > 50) errorGyroI_YAW = 0;
+    float sp = (float)rcCommand[YAW]*30.0/32.0;
+    
+    float new_error = sp - newGyroData[YAW];
+    newErrorGyroI_YAW += new_error*new_yaw_ki;
+    newErrorGyroI_YAW  = constrain(newErrorGyroI_YAW, -268435454, 268435454);
+    if (abs(sp) > 50) newErrorGyroI_YAW = 0;
 
-    PTerm = error*kp>>6;
-    ITerm = constrain((int16_t)(errorGyroI_YAW>>13),-GYRO_I_MAX,+GYRO_I_MAX);
+    float newPTerm = new_error*new_kp/64.0;
+    float newITerm = constrain(newErrorGyroI_YAW/8192.0,-GYRO_I_MAX,+GYRO_I_MAX);
 
-    axisPID[YAW] =  PTerm + ITerm;
+    newAxisPID[YAW]  = newPTerm + newITerm;
+
+    axisPID[YAW] = newAxisPID[YAW];
 
     // Mix table
     motor[0] = rcCommand[THROTTLE] - axisPID[ROLL] + axisPID[PITCH] + axisPID[YAW];
@@ -545,18 +540,6 @@ void loop(void)
     //Serial.print(uxTaskGetStackHighWaterMark(blynk_handle));
     //Serial.print("\t");
     //Serial.print(uxTaskGetStackHighWaterMark(imu_handle));
-
-    //Serial.print(angle[ROLL]/10.0);
-    //Serial.print(" ");
-    //Serial.println(angle[PITCH]/10.0);
-
-    /*Serial.print(gyroData[ROLL]);
-    Serial.print(" ");
-    Serial.println(gyroData[PITCH]);*/
-
-    //Serial.print(roll_rate);
-    //Serial.print(" ");
-    //Serial.println(pitch_rate);
     
     update_pid = 0;
 
