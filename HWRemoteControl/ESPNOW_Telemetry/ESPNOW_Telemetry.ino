@@ -16,15 +16,26 @@ typedef struct sent_message {
   float gyr_y;
   float gyr_z;
   */
+  /*
   float pitch;
   float roll;
   float acc_z;
+  */
+  int16_t roll_rate_setpoint;
+  int16_t pitch_rate_setpoint;
+  int16_t yaw_rate_setpoint;
+  int32_t altitude_setpoint;
+  float roll_rate;
+  float pitch_rate;
+  float yaw_rate;
+  float altitude;
 } sent_message;
 
 sent_message drone_data;
 
 
 unsigned long prev_time = 0;
+float total_time = 0;
 
 // callback function that will be executed when data is received
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
@@ -62,22 +73,45 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   
   memcpy(&drone_data, incomingData, sizeof(drone_data));
 
-
+  /*
   Serial.print(drone_data.loop_time);
   Serial.print(" ");
   Serial.println(drone_data.process_time);
-  //Serial.print(" ");
+  */
+  total_time += drone_data.loop_time/1000000.0;
+  Serial.print(total_time, 5);
+  Serial.print(" ");
   
-  //Serial.print(drone_data.acc_x);
+  //Serial.print(drone_data.roll_rate_setpoint);
   //Serial.print(" ");
-  //Serial.print(drone_data.acc_y);
+  //Serial.println(drone_data.roll_rate);
+  
+  //Serial.print(drone_data.pitch_rate_setpoint);
   //Serial.print(" ");
-  //Serial.println(drone_data.acc_z);
+  //Serial.println(drone_data.pitch_rate);
 
-  //Serial.print(drone_data.roll*180.0/PI);
+  //Serial.print(drone_data.yaw_rate_setpoint);
   //Serial.print(" ");
-  //Serial.println(drone_data.pitch*180.0/PI);
-  //Serial.println(drone_data.acc_z);
+  //Serial.println(drone_data.yaw_rate);
+
+  Serial.print(drone_data.altitude_setpoint);
+  Serial.print(" ");
+  Serial.println(drone_data.altitude);
+  
+  //Serial.print(drone_data.pitch_rate_setpoint);
+  //Serial.print(" ");
+  //
+  //Serial.print(" ");
+  //Serial.print(drone_data.altitude_setpoint);
+  //Serial.print(" ");
+  //Serial.print(drone_data.roll_rate);
+  //Serial.print(" ");
+  //Serial.print(drone_data.pitch_rate);
+  //Serial.print(" ");
+  //
+  //Serial.print(" ");
+  //Serial.println(drone_data.altitude);
+  
 }
  
 void setup() {

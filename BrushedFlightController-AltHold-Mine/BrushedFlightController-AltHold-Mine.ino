@@ -138,8 +138,13 @@ uint8_t calibrate_alt;
 
 // PID calculation variables
 unsigned long prev_pid_time = 0;
-int16_t axisPID[3];
+//int16_t axisPID[3];
+float axisPID[3];
 int16_t angleCorrection[2];
+
+// new PID
+float prevPID[3];
+float prevError[3];
 
 // Motor values
 int16_t motor[4];
@@ -351,28 +356,36 @@ void loop(void)
   static uint8_t taskOrder=0;
 
   uint8_t axis;
-  int16_t rc;
-  int16_t error, errorAngle;
-  int16_t delta;
-  static int32_t errorGyroI_YAW;
+  float rc;
+  float error, errorAngle;
+  float delta;
+  static float errorGyroI_YAW;
   static int16_t errorGyroI[2] = {0,0};
   static int16_t errorAngleI[2] = {0,0};
-  static int16_t delta1[2],delta2[2];
-  static int16_t lastGyro[2] = {0,0};
+  static float delta1[2],delta2[2];
+  static float lastGyro[3] = {0,0,0};
 
-  int16_t PTerm = 0,ITerm = 0,DTerm, PTermACC, ITermACC;
+  //int16_t PTerm = 0,ITerm = 0,DTerm, PTermACC, ITermACC;
+  float ITerm = 0;
 
-  uint8_t kp = 12;//5;//12;
-  uint8_t ki = 30;//17;//30;
-  uint8_t kd = 23;//52;//23;
+  float N = 60;
+  float Ts = 0.0028;
+
+  //uint8_t kp = 12;//5;//12;
+  //uint8_t ki = 30;//17;//30;
+  //uint8_t kd = 23;//52;//23;
+
+  float kp = 12.0*4.1/64.0;//5;//12;
+  float kd = 23.0*4.1/32.0;//52;//23;
 
   uint8_t level_kp = 45;//90
   uint8_t level_ki = 10;
   uint8_t level_kd = 100;
 
-  uint8_t yaw_kp = 68;
-  uint8_t yaw_ki = 45;
-  uint8_t yaw_kd = 0;
+  //uint8_t yaw_kp = 68;
+  //uint8_t yaw_ki = 45;
+  //uint8_t yaw_kd = 0;
+  float yaw_ki = 45.0*4.1;
   
   if(update_pid)
   {
@@ -437,82 +450,55 @@ void loop(void)
     angle[ROLL] = roll*180.0*10.0/PI;
     angle[PITCH] = pitch*180.0*10.0/PI;
 
-    roll_rate = roll_rate*0.7 + ((int16_t)(imu.gyroscope.x*imu.gyroscope.res*16.4)>>2)*0.3;
-    pitch_rate = pitch_rate*0.7 + ((int16_t)(imu.gyroscope.y*imu.gyroscope.res*16.4)>>2)*0.3;
-    yaw_rate = yaw_rate*0.7 + ((int16_t)(imu.gyroscope.z*imu.gyroscope.res*16.4)>>2)*0.3;
+    roll_rate = roll_rate*0.7 + imu.gyroscope.x*imu.gyroscope.res*0.3;
+    pitch_rate = pitch_rate*0.7 + imu.gyroscope.y*imu.gyroscope.res*0.3;
+    yaw_rate = yaw_rate*0.7 + imu.gyroscope.z*imu.gyroscope.res*0.3;
 
-    //****PENGIND STEPS****//
-    /*
-    1. Integrgate Baro Mode button from controller
-    //Integrate Baro calibration on arm -> Not necessary
-    2. Reset PID stuff on baro mode activation and save throttle value
-    3. Add PID calculation to loop
-    */
-
-    int16_t gyroData[3];
-    gyroData[ROLL] = (int16_t)roll_rate;
-    gyroData[PITCH] = (int16_t)pitch_rate;
-    gyroData[YAW] = (int16_t)yaw_rate;
+    float gyroData[3];
+    gyroData[0] = roll_rate;
+    gyroData[1] = pitch_rate;
+    gyroData[2] = yaw_rate;
 
     // PITCH & ROLL
     for(axis=0;axis<2;axis++) {
-      rc = rcCommand[axis]*0.3;//rcCommand[axis]*0.3; = tri-blade//rcCommand[axis]*0.1 = dual-blade
+      rc = ((float)rcCommand[axis])*0.35/4.1;//rcCommand[axis]*0.3; = tri-blade//rcCommand[axis]*0.1 = dual-blade
       error = rc - gyroData[axis];
-      errorGyroI[axis]  = constrain(errorGyroI[axis]+error,-16000,+16000);       // WindUp   16 bits is ok here
-      if (abs(gyroData[axis])>640) errorGyroI[axis] = 0;
-  
-      ITerm = (errorGyroI[axis]>>7)*ki>>6;                        // 16 bits is ok here 16000/125 = 128 ; 128*250 = 32000
-  
-      PTerm = (rc*kp)>>6;
-
-      angleCorrection[ROLL] = 0;
-      angleCorrection[PITCH] = 0;
-
-      // ANGLE MOde PID
-      if(false){
-        // 50 degrees max inclination
-        errorAngle         = constrain(rcCommand[axis],-75,+75) - angle[axis] + angleCorrection[axis]; //16 bits is ok here
-        errorAngleI[axis]  = constrain(errorAngleI[axis]+errorAngle,-10000,+10000);                                                // WindUp     //16 bits is ok here
-  
-        PTermACC           = errorAngle*level_kp>>7; // 32 bits is needed for calculation: errorAngle*P8 could exceed 32768   16 bits is ok for result
-  
-        int16_t limit      = level_kd*5;
-        PTermACC           = constrain(PTermACC,-limit,+limit);
-  
-        ITermACC           = errorAngleI[axis]*level_ki>>12;   // 32 bits is needed for calculation:10000*I8 could exceed 32768   16 bits is ok for result
-  
-        ITerm              = ITermACC;
-        PTerm              = PTermACC;
-      }
-  
-      PTerm -= (gyroData[axis]*kp)>>6; // 32 bits is needed for calculation   
   
       delta          = gyroData[axis] - lastGyro[axis];  // 16 bits is ok here, the dif between 2 consecutive gyro reads is limited to 800
       lastGyro[axis] = gyroData[axis];
-      DTerm          = delta1[axis]+delta2[axis]+delta;
+      
+      /*DTerm          = delta1[axis]+delta2[axis]+delta;
       delta2[axis]   = delta1[axis];
       delta1[axis]   = delta;
-   
-      DTerm = (DTerm*kd)>>5;        // 32 bits is needed for calculation
+      DTerm = DTerm*kd;        // 32 bits is needed for calculation
+      */
   
-      axisPID[axis] = PTerm + ITerm - DTerm;
+      //axisPID[axis] = PTerm - DTerm;
+      axisPID[axis] = kp*error - delta*kd;
     }
     
     //YAW
     #define GYRO_P_MAX 300
     #define GYRO_I_MAX 250
   
-    rc = rcCommand[YAW] * 30  >> 5;
-
+    //rc = ((float)rcCommand[YAW]) * 30.0/32.0/4.1;
+    rc = 0;
     error = rc - gyroData[YAW];
+
+    //delta          = gyroData[YAW] - lastGyro[YAW];  // 16 bits is ok here, the dif between 2 consecutive gyro reads is limited to 800
+    //lastGyro[axis] = gyroData[YAW];
+
+    
     errorGyroI_YAW  += error*yaw_ki;
-    errorGyroI_YAW  = constrain(errorGyroI_YAW, 2-((int32_t)1<<28), -2+((int32_t)1<<28));
-    if (abs(rc) > 50) errorGyroI_YAW = 0;
+    //errorGyroI_YAW  = constrain(errorGyroI_YAW, 2-((int32_t)1<<28), -2+((int32_t)1<<28));
+    
+    if (abs(rc) > 50.0/4.1) errorGyroI_YAW = 0;
 
-    PTerm = error*kp>>6;
-    ITerm = constrain((int16_t)(errorGyroI_YAW>>13),-GYRO_I_MAX,+GYRO_I_MAX);
-
-    axisPID[YAW] =  PTerm + ITerm;
+    ITerm = constrain(errorGyroI_YAW/8192.0,-GYRO_I_MAX,+GYRO_I_MAX);
+    
+    axisPID[YAW] =  error*kp + ITerm;
+    
+    //axisPID[YAW] =  error*kp - delta*kd;
 
     // Mix table
     motor[0] = rcCommand[THROTTLE] - axisPID[ROLL] + axisPID[PITCH] + axisPID[YAW];
