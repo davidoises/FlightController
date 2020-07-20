@@ -140,6 +140,8 @@ uint8_t calibrate_alt;
 unsigned long prev_pid_time = 0;
 int16_t axisPID[3];
 float newAxisPID[3];
+float prevAxisPID[3];
+float prevError[3];
 int16_t angleCorrection[2];
 
 // Motor values
@@ -366,14 +368,24 @@ void loop(void)
 
   int16_t PTerm = 0,ITerm = 0,DTerm, PTermACC, ITermACC;
 
+  /*
+   * Original old constants
   uint8_t kp = 12;//5;//12;
   uint8_t ki = 30;//17;//30;
   uint8_t kd = 23;//52;//23;
+  */
 
+  
+  //Just floated PID
   float new_kp = 12;//5;//12;
   float new_ki = 30;//17;//30;
   float new_kd = 23;//52;//23;
 
+  /*
+   * Theoretical PD
+  float new_kp = 15;
+  float new_kd = 0.3;
+  */
   uint8_t level_kp = 45;//90
   uint8_t level_ki = 10;
   uint8_t level_kd = 100;
@@ -393,7 +405,6 @@ void loop(void)
     
     unsigned long current_time = micros();
     float dt = current_time - prev_pid_time;
-    //Serial.println(dt, 0);
     prev_pid_time = current_time;
     
     
@@ -445,12 +456,9 @@ void loop(void)
 
     // Estimate euler angles, just used to get world frame acceleration
     attitude_estimation(dt);
+    
     // Get world frame z acceleration for AltHold
     acceleration_estimation(dt);
-    
-    int16_t angle[2];
-    angle[ROLL] = roll*180.0*10.0/PI;
-    angle[PITCH] = pitch*180.0*10.0/PI;
 
     roll_rate = roll_rate*0.7 + ((int16_t)(imu.gyroscope.x*imu.gyroscope.res*16.4)>>2)*0.3;
     pitch_rate = pitch_rate*0.7 + ((int16_t)(imu.gyroscope.y*imu.gyroscope.res*16.4)>>2)*0.3;
@@ -463,53 +471,67 @@ void loop(void)
 
     // PITCH & ROLL
     for(axis=0;axis<2;axis++) {
+      // ERROR claculation
       float sp = (float)rcCommand[axis]*0.3;
       float new_error = sp - newGyroData[axis];
+
+      /*
+      // Theoretical PD
+      float N = 20.0;
+      float Ts = 0.0028;
+
+      newAxisPID[axis] = (  prevAxisPID[axis] + (new_kp/64.0)* ((1+N*Ts)*new_error - prevError[axis]) + (new_kd/64.0)*N*(new_error - prevError[axis])  )/(1+N*Ts);
+
+      prevAxisPID[axis] = newAxisPID[axis];
+      prevError[axis] = new_error;
+      */
+
+      
+      //Floated PID
+      // Proportional term
+      float newPTerm = (new_kp/64.0)*new_error;
+      
+      // Integral term
       newErrorGyroI[axis] = constrain(newErrorGyroI[axis]+new_error,-16000,+16000);
       if (abs(newGyroData[axis])>640) newErrorGyroI[axis] = 0;
-
       float newITerm = (newErrorGyroI[axis]/128.0)*new_ki/64.0;
 
-      float newPTerm = sp*new_kp/64.0;
-      newPTerm -= (newGyroData[axis]*new_kp)/64.0;
-
+      // Derivative term
       float newDelta = newGyroData[axis] - newLastGyro[axis];
       newLastGyro[axis] = newGyroData[axis];
 
-      float newDTerm = newDelta1[axis] + newDelta2[axis] + newDelta;
+      // Rolling average on derivative term
+      float newDTerm = (newDelta1[axis] + newDelta2[axis] + newDelta)/3.0;
       newDelta2[axis]   = newDelta1[axis];
       newDelta1[axis]   = newDelta;
 
-      newDTerm = (newDTerm*new_kd)/32.0;
+      newDTerm = newDTerm*(new_kd*3.0/32.0);
+      //newDTerm = newDelta*(new_kd/32.0);
 
       newAxisPID[axis]  = newPTerm + newITerm - newDTerm;
-
-      axisPID[axis] = newAxisPID[axis];
+      
     }
     
     //YAW
-    #define GYRO_P_MAX 300
     #define GYRO_I_MAX 250
-
-    float sp = (float)rcCommand[YAW]*30.0/32.0;
-    
+    float sp = (float)rcCommand[YAW]*1.5;// Set this between 1 and 1.5 to increase speed
     float new_error = sp - newGyroData[YAW];
-    newErrorGyroI_YAW += new_error*new_yaw_ki;
-    newErrorGyroI_YAW  = constrain(newErrorGyroI_YAW, -268435454, 268435454);
-    if (abs(sp) > 50) newErrorGyroI_YAW = 0;
 
+    // Proportional term
     float newPTerm = new_error*new_kp/64.0;
-    float newITerm = constrain(newErrorGyroI_YAW/8192.0,-GYRO_I_MAX,+GYRO_I_MAX);
+
+    // Integral term
+    newErrorGyroI_YAW += new_error*new_yaw_ki/8192.0;
+    if (abs(sp) > 50) newErrorGyroI_YAW = 0;
+    float newITerm = constrain(newErrorGyroI_YAW,-GYRO_I_MAX,+GYRO_I_MAX);
 
     newAxisPID[YAW]  = newPTerm + newITerm;
 
-    axisPID[YAW] = newAxisPID[YAW];
-
     // Mix table
-    motor[0] = rcCommand[THROTTLE] - axisPID[ROLL] + axisPID[PITCH] + axisPID[YAW];
-    motor[1] = rcCommand[THROTTLE] + axisPID[ROLL] + axisPID[PITCH] - axisPID[YAW];
-    motor[2] = rcCommand[THROTTLE] + axisPID[ROLL] - axisPID[PITCH] + axisPID[YAW];
-    motor[3] = rcCommand[THROTTLE] - axisPID[ROLL] - axisPID[PITCH] - axisPID[YAW];
+    motor[0] = rcCommand[THROTTLE] - newAxisPID[ROLL] + newAxisPID[PITCH] + newAxisPID[YAW];
+    motor[1] = rcCommand[THROTTLE] + newAxisPID[ROLL] + newAxisPID[PITCH] - newAxisPID[YAW];
+    motor[2] = rcCommand[THROTTLE] + newAxisPID[ROLL] - newAxisPID[PITCH] + newAxisPID[YAW];
+    motor[3] = rcCommand[THROTTLE] - newAxisPID[ROLL] - newAxisPID[PITCH] - newAxisPID[YAW];
 
     int16_t maxMotor;
     uint8_t i;
@@ -548,20 +570,6 @@ void loop(void)
     // Telemetry update
     drone_data.loop_time = dt;
     drone_data.process_time = elapsed_time;
-    /*
-    drone_data.acc_x = imu.accelerometer.x*imu.accelerometer.res;
-    drone_data.acc_y = imu.accelerometer.y*imu.accelerometer.res;
-    drone_data.acc_z = imu.accelerometer.z*imu.accelerometer.res;
-
-    drone_data.gyr_x = imu.gyroscope.x*imu.gyroscope.res;
-    drone_data.gyr_y = imu.gyroscope.y*imu.gyroscope.res;
-    drone_data.gyr_z = imu.gyroscope.z*imu.gyroscope.res;
-    */
-    /*
-    drone_data.roll = roll;
-    drone_data.pitch = pitch;
-    drone_data.acc_z = acczSmooth;
-    */
 
     drone_data.roll_rate_setpoint = rcCommand[ROLL]*0.3;
     drone_data.pitch_rate_setpoint = rcCommand[PITCH]*0.3;
@@ -574,7 +582,5 @@ void loop(void)
     
     // Set this to 0 if not needed to send data
     update_telemetry = 1;
-    
-    //Serial.println(elapsed_time, 0);
   }
 }
