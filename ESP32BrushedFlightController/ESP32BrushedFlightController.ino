@@ -4,7 +4,10 @@
 #include <WiFi.h>
 #include <EEPROM.h>
 #include "Estimates.h"
+#include "PID.h"
+#include "Definitions.h"
 
+/*
 #define EEPROM_SIZE sizeof(float)*3
 
 // BMX055 IMU addresses
@@ -37,11 +40,13 @@
 
 // PID sampling
 #define PID_SAMPLING 2800
+*/
 
 // Class objects for data acquisition and sensor fusion
 BMX055 imu = BMX055(AM_DEV, G_DEV, MAG_DEV, USE_MAG_CALIBRATION);
 MS5611 altimeter = MS5611();
 
+/*
 // RF input message structure
 typedef struct received_message {
   uint8_t hr_stick;
@@ -59,9 +64,11 @@ typedef struct received_message {
   uint8_t l_back_button;
   uint8_t r_back_button;
 } received_message;
+*/
 
 received_message controller_data;
 
+/*
 // RF output message structure
 typedef struct sent_message {
   float loop_time;
@@ -75,10 +82,11 @@ typedef struct sent_message {
   float yaw_rate;
   float altitude;
 } sent_message;
+*/
 
 sent_message drone_data;
 
-uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+//uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 uint8_t update_telemetry;
 
@@ -93,19 +101,21 @@ int16_t rcData[4];
 int16_t rcCommand[4];
 int16_t initalThrottle = 0;
 
+/*
 enum rc {
   ROLL,
   PITCH,
   YAW,
   THROTTLE,
 };
+*/
 
 // Accelerometer calibration variables
 uint8_t calibrate_acc = 0;
 float acc_calibration[3] = {0,0,0};
 
 // Orientation measurements
-float gyroLPF[3];
+float gyroLPF[3] = {0,0,0};
 float roll = 0;
 float pitch = 0;
 
@@ -398,15 +408,14 @@ void loop(void)
     get_gyr_compensated_data();
     get_acc_compensated_data();
 
+    // Gyro low pass filter for gyro PID
+    get_gyr_lpf();
+
     // Estimate euler angles, just used to get world frame acceleration
     attitude_estimation(dt);
     
-    // Get world frame z acceleration for AltHold
+    // Get world frame z acceleration for AltHold PID
     acceleration_estimation(dt);
-
-    gyroLPF[ROLL]  = gyroLPF[ROLL]*0.7 + imu.gyroscope.x*imu.gyroscope.res*0.3;
-    gyroLPF[PITCH]  = gyroLPF[PITCH]*0.7 + imu.gyroscope.y*imu.gyroscope.res*0.3;
-    gyroLPF[YAW]  = gyroLPF[YAW]*0.7 + imu.gyroscope.z*imu.gyroscope.res*0.3;
 
     // PITCH & ROLL
     for(axis=0;axis<2;axis++) {

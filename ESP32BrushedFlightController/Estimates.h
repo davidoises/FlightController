@@ -12,6 +12,7 @@
 extern BMX055 imu;
 extern uint8_t calibrate_acc;
 extern float acc_calibration[3];
+extern float gyroLPF[3];
 extern float roll;
 extern float pitch;
 extern float acczSmooth;
@@ -25,6 +26,7 @@ extern int32_t AltitudeSetpoint;
 
 void get_gyr_compensated_data();
 void get_acc_compensated_data();
+void get_gyr_lpf();
 uint8_t get_baro_data();
 float applyDeadband(float value, float deadband);
 void attitude_estimation(float dt);

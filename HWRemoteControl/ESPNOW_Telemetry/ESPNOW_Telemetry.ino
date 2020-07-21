@@ -78,13 +78,14 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Serial.print(" ");
   Serial.println(drone_data.process_time);
   */
-  total_time += drone_data.loop_time/1000000.0;
-  Serial.print(total_time, 5);
-  Serial.print(" ");
   
-  //Serial.print(drone_data.roll_rate_setpoint);
+  //total_time += drone_data.loop_time/1000000.0;
+  //Serial.print(total_time, 5);
   //Serial.print(" ");
-  //Serial.println(drone_data.roll_rate);
+  
+  Serial.print(drone_data.roll_rate_setpoint);
+  Serial.print(" ");
+  Serial.println(drone_data.roll_rate);
   
   //Serial.print(drone_data.pitch_rate_setpoint);
   //Serial.print(" ");
@@ -94,21 +95,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   //Serial.print(" ");
   //Serial.println(drone_data.yaw_rate);
 
-  Serial.print(drone_data.altitude_setpoint);
-  Serial.print(" ");
-  Serial.println(drone_data.altitude);
-  
-  //Serial.print(drone_data.pitch_rate_setpoint);
-  //Serial.print(" ");
-  //
-  //Serial.print(" ");
   //Serial.print(drone_data.altitude_setpoint);
-  //Serial.print(" ");
-  //Serial.print(drone_data.roll_rate);
-  //Serial.print(" ");
-  //Serial.print(drone_data.pitch_rate);
-  //Serial.print(" ");
-  //
   //Serial.print(" ");
   //Serial.println(drone_data.altitude);
   

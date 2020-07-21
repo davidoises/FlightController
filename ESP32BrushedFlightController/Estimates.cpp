@@ -66,6 +66,13 @@ void get_acc_compensated_data()
   
 }
 
+void get_gyr_lpf()
+{
+  gyroLPF[0]  = gyroLPF[0]*0.7 + imu.gyroscope.x*imu.gyroscope.res*0.3;
+  gyroLPF[1]  = gyroLPF[1]*0.7 + imu.gyroscope.y*imu.gyroscope.res*0.3;
+  gyroLPF[2]  = gyroLPF[2]*0.7 + imu.gyroscope.z*imu.gyroscope.res*0.3;
+}
+
 // cfg.baro_tab_size = 21;
 //#define BARO_TAB_SIZE_MAX   48
 void Baro_Common(void)
