@@ -1,6 +1,5 @@
 #include "BMX055.h"
 #include "MS5611.h"
-//#include "SensorFusion.h"
 #include <esp_now.h>
 #include <WiFi.h>
 #include <EEPROM.h>
@@ -42,7 +41,6 @@
 // Class objects for data acquisition and sensor fusion
 BMX055 imu = BMX055(AM_DEV, G_DEV, MAG_DEV, USE_MAG_CALIBRATION);
 MS5611 altimeter = MS5611();
-//SensorFusion orientation;
 
 // RF input message structure
 typedef struct received_message {
@@ -68,19 +66,6 @@ received_message controller_data;
 typedef struct sent_message {
   float loop_time;
   float process_time;
-  /*
-  float acc_x;
-  float acc_y;
-  float acc_z;
-  float gyr_x;
-  float gyr_y;
-  float gyr_z;
-  */
-  /*
-  float pitch;
-  float roll;
-  float acc_z;
-  */
   int16_t roll_rate_setpoint;
   int16_t pitch_rate_setpoint;
   int16_t yaw_rate_setpoint;
@@ -120,9 +105,7 @@ uint8_t calibrate_acc = 0;
 float acc_calibration[3] = {0,0,0};
 
 // Orientation measurements
-float roll_rate = 0;
-float pitch_rate = 0;
-float yaw_rate = 0;
+float gyroLPF[3];
 float roll = 0;
 float pitch = 0;
 
@@ -138,11 +121,7 @@ uint8_t calibrate_alt;
 
 // PID calculation variables
 unsigned long prev_pid_time = 0;
-int16_t axisPID[3];
 float newAxisPID[3];
-float prevAxisPID[3];
-float prevError[3];
-int16_t angleCorrection[2];
 
 // Motor values
 int16_t motor[4];
@@ -354,48 +333,18 @@ void loop(void)
   static uint8_t taskOrder=0;
 
   uint8_t axis;
-  int16_t rc;
-  int16_t error;
-  int16_t delta;
-  static int32_t errorGyroI_YAW;
   static float newErrorGyroI_YAW;
-  static int16_t errorGyroI[2] = {0,0};
   static float newErrorGyroI[2] = {0,0};
-  static int16_t delta1[2],delta2[2];
   static float newDelta1[2],newDelta2[2];
-  static int16_t lastGyro[2] = {0,0};
   static float newLastGyro[2] = {0,0};
 
-  int16_t PTerm = 0,ITerm = 0,DTerm, PTermACC, ITermACC;
-
-  /*
-   * Original old constants
-  uint8_t kp = 12;//5;//12;
-  uint8_t ki = 30;//17;//30;
-  uint8_t kd = 23;//52;//23;
-  */
-
-  
   //Just floated PID
-  float new_kp = 12.0/64.0;//5;//12;
-  float new_ki = 30.0/(64.0*128.0);//17;//30;
-  float new_kd = 23.0*3.0/32.0;//52;//23;
+  float new_kp = 12.0*4.1/64.0;//5;//12;
+  float new_ki = 30.0*4.1/(64.0*128.0);//17;//30;
+  float new_kd = 23.0*3.0*4.1/32.0;//52;//23;
 
-  /*
-   * Theoretical PD
-  float new_kp = 15;
-  float new_kd = 0.3;
-  */
-  uint8_t level_kp = 45;//90
-  uint8_t level_ki = 10;
-  uint8_t level_kd = 100;
-
-  uint8_t yaw_kp = 12.0/64.0;//5;//12;
-  uint8_t yaw_ki = 45/8192.0;
-  uint8_t yaw_kd = 0;
-
-  float new_yaw_kp = 12.0/64.0;//5;//12;
-  float new_yaw_ki = 45/8192.0;
+  float new_yaw_kp = 4.1*12.0/64.0;//5;//12;
+  float new_yaw_ki = 4.1*45.0/8192.0;
   
   if(update_pid)
   {
@@ -409,13 +358,9 @@ void loop(void)
     
     if(rcData[THROTTLE] <= 1100)
     {
-      errorGyroI[ROLL] = 0;
-      errorGyroI[PITCH] = 0;
-
       newErrorGyroI[ROLL] = 0;
       newErrorGyroI[PITCH] = 0;
       
-      errorGyroI_YAW = 0;
       newErrorGyroI_YAW = 0;
     }
 
@@ -459,39 +404,28 @@ void loop(void)
     // Get world frame z acceleration for AltHold
     acceleration_estimation(dt);
 
-    /*
-    roll_rate = roll_rate*0.7 + ((int16_t)(imu.gyroscope.x*imu.gyroscope.res*16.4)>>2)*0.3;
-    pitch_rate = pitch_rate*0.7 + ((int16_t)(imu.gyroscope.y*imu.gyroscope.res*16.4)>>2)*0.3;
-    yaw_rate = yaw_rate*0.7 + ((int16_t)(imu.gyroscope.z*imu.gyroscope.res*16.4)>>2)*0.3;
-    */
-
-    roll_rate = roll_rate*0.7 + imu.gyroscope.x*imu.gyroscope.res*0.3;
-    pitch_rate = pitch_rate*0.7 + imu.gyroscope.y*imu.gyroscope.res*0.3;
-    yaw_rate = yaw_rate*0.7 + imu.gyroscope.z*imu.gyroscope.res*0.3;
-
-    float newGyroData[3];
-    newGyroData[ROLL] = roll_rate*4.1;
-    newGyroData[PITCH] = pitch_rate*4.1;
-    newGyroData[YAW] = yaw_rate*4.1;
+    gyroLPF[ROLL]  = gyroLPF[ROLL]*0.7 + imu.gyroscope.x*imu.gyroscope.res*0.3;
+    gyroLPF[PITCH]  = gyroLPF[PITCH]*0.7 + imu.gyroscope.y*imu.gyroscope.res*0.3;
+    gyroLPF[YAW]  = gyroLPF[YAW]*0.7 + imu.gyroscope.z*imu.gyroscope.res*0.3;
 
     // PITCH & ROLL
     for(axis=0;axis<2;axis++) {
       // ERROR claculation
-      float sp = (float)rcCommand[axis]*0.3;
-      float new_error = sp - newGyroData[axis];
+      float sp = (float)rcCommand[axis]*0.3/4.1;
+      float new_error = sp - gyroLPF[axis];
       
       //Floated PID
       // Proportional term
       float newPTerm = new_kp*new_error;
       
       // Integral term
-      newErrorGyroI[axis] = constrain(newErrorGyroI[axis]+new_error,-16000,+16000);
-      if (abs(newGyroData[axis])>640) newErrorGyroI[axis] = 0;
+      newErrorGyroI[axis] = constrain(newErrorGyroI[axis]+new_error,-3902,+3902);
+      if (abs(gyroLPF[axis])>156) newErrorGyroI[axis] = 0;
       float newITerm = newErrorGyroI[axis]*new_ki;
 
       // Derivative term
-      float newDelta = newGyroData[axis] - newLastGyro[axis];
-      newLastGyro[axis] = newGyroData[axis];
+      float newDelta = gyroLPF[axis] - newLastGyro[axis];
+      newLastGyro[axis] = gyroLPF[axis];
 
       // Rolling average on derivative term
       float newDTerm = (newDelta1[axis] + newDelta2[axis] + newDelta)/3.0;
@@ -505,9 +439,8 @@ void loop(void)
     }
     
     //YAW
-    //#define GYRO_I_MAX 250
-    float sp = (float)rcCommand[YAW]*1.5;// Set this between 1 and 1.5 to increase speed
-    float new_error = sp - newGyroData[YAW];
+    float sp = (float)rcCommand[YAW]*1.5/4.1;// Set this between 1 and 1.5 to increase speed
+    float new_error = sp - gyroLPF[YAW];
 
     // Proportional term
     float newPTerm = new_error*new_yaw_kp;
@@ -563,13 +496,13 @@ void loop(void)
     drone_data.loop_time = dt;
     drone_data.process_time = elapsed_time;
 
-    drone_data.roll_rate_setpoint = rcCommand[ROLL]*0.3;
-    drone_data.pitch_rate_setpoint = rcCommand[PITCH]*0.3;
-    drone_data.yaw_rate_setpoint = rcCommand[YAW]*30>>5;
+    drone_data.roll_rate_setpoint = rcCommand[ROLL]*0.3/4.1;
+    drone_data.pitch_rate_setpoint = rcCommand[PITCH]*0.3/4.1;
+    drone_data.yaw_rate_setpoint = rcCommand[YAW]*1.5/4.1;
     drone_data.altitude_setpoint = AltitudeSetpoint;
-    drone_data.roll_rate = roll_rate;
-    drone_data.pitch_rate = pitch_rate;
-    drone_data.yaw_rate = yaw_rate;
+    drone_data.roll_rate = gyroLPF[ROLL];
+    drone_data.pitch_rate = gyroLPF[PITCH];
+    drone_data.yaw_rate = gyroLPF[YAW];
     drone_data.altitude = EstAlt;
     
     // Set this to 0 if not needed to send data
