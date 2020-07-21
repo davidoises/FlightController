@@ -377,9 +377,9 @@ void loop(void)
 
   
   //Just floated PID
-  float new_kp = 12;//5;//12;
-  float new_ki = 30;//17;//30;
-  float new_kd = 23;//52;//23;
+  float new_kp = 12.0/64.0;//5;//12;
+  float new_ki = 30.0/(64.0*128.0);//17;//30;
+  float new_kd = 23.0*3.0/32.0;//52;//23;
 
   /*
    * Theoretical PD
@@ -390,13 +390,12 @@ void loop(void)
   uint8_t level_ki = 10;
   uint8_t level_kd = 100;
 
-  uint8_t yaw_kp = 68;
-  uint8_t yaw_ki = 45;
+  uint8_t yaw_kp = 12.0/64.0;//5;//12;
+  uint8_t yaw_ki = 45/8192.0;
   uint8_t yaw_kd = 0;
 
-  float new_yaw_kp = 68;
-  float new_yaw_ki = 45;
-  float new_yaw_kd = 0;
+  float new_yaw_kp = 12.0/64.0;//5;//12;
+  float new_yaw_ki = 45/8192.0;
   
   if(update_pid)
   {
@@ -489,12 +488,12 @@ void loop(void)
       
       //Floated PID
       // Proportional term
-      float newPTerm = (new_kp/64.0)*new_error;
+      float newPTerm = new_kp*new_error;
       
       // Integral term
       newErrorGyroI[axis] = constrain(newErrorGyroI[axis]+new_error,-16000,+16000);
       if (abs(newGyroData[axis])>640) newErrorGyroI[axis] = 0;
-      float newITerm = (newErrorGyroI[axis]/128.0)*new_ki/64.0;
+      float newITerm = newErrorGyroI[axis]*new_ki;
 
       // Derivative term
       float newDelta = newGyroData[axis] - newLastGyro[axis];
@@ -505,8 +504,7 @@ void loop(void)
       newDelta2[axis]   = newDelta1[axis];
       newDelta1[axis]   = newDelta;
 
-      newDTerm = newDTerm*(new_kd*3.0/32.0);
-      //newDTerm = newDelta*(new_kd/32.0);
+      newDTerm = newDTerm*new_kd;
 
       newAxisPID[axis]  = newPTerm + newITerm - newDTerm;
       
@@ -518,10 +516,11 @@ void loop(void)
     float new_error = sp - newGyroData[YAW];
 
     // Proportional term
-    float newPTerm = new_error*new_kp/64.0;
+    float newPTerm = new_error*new_yaw_kp;
 
     // Integral term
-    newErrorGyroI_YAW += new_error*new_yaw_ki/8192.0;
+    //newErrorGyroI_YAW += new_error*new_yaw_ki/8192.0;
+    newErrorGyroI_YAW += new_error*new_yaw_ki;
     if (abs(sp) > 50) newErrorGyroI_YAW = 0;
     float newITerm = constrain(newErrorGyroI_YAW,-GYRO_I_MAX,+GYRO_I_MAX);
 
