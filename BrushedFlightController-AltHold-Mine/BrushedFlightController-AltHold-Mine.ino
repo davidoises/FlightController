@@ -459,32 +459,26 @@ void loop(void)
     // Get world frame z acceleration for AltHold
     acceleration_estimation(dt);
 
+    /*
     roll_rate = roll_rate*0.7 + ((int16_t)(imu.gyroscope.x*imu.gyroscope.res*16.4)>>2)*0.3;
     pitch_rate = pitch_rate*0.7 + ((int16_t)(imu.gyroscope.y*imu.gyroscope.res*16.4)>>2)*0.3;
     yaw_rate = yaw_rate*0.7 + ((int16_t)(imu.gyroscope.z*imu.gyroscope.res*16.4)>>2)*0.3;
+    */
+
+    roll_rate = roll_rate*0.7 + imu.gyroscope.x*imu.gyroscope.res*0.3;
+    pitch_rate = pitch_rate*0.7 + imu.gyroscope.y*imu.gyroscope.res*0.3;
+    yaw_rate = yaw_rate*0.7 + imu.gyroscope.z*imu.gyroscope.res*0.3;
 
     float newGyroData[3];
-    newGyroData[ROLL] = roll_rate;
-    newGyroData[PITCH] = pitch_rate;
-    newGyroData[YAW] = yaw_rate;
+    newGyroData[ROLL] = roll_rate*4.1;
+    newGyroData[PITCH] = pitch_rate*4.1;
+    newGyroData[YAW] = yaw_rate*4.1;
 
     // PITCH & ROLL
     for(axis=0;axis<2;axis++) {
       // ERROR claculation
       float sp = (float)rcCommand[axis]*0.3;
       float new_error = sp - newGyroData[axis];
-
-      /*
-      // Theoretical PD
-      float N = 20.0;
-      float Ts = 0.0028;
-
-      newAxisPID[axis] = (  prevAxisPID[axis] + (new_kp/64.0)* ((1+N*Ts)*new_error - prevError[axis]) + (new_kd/64.0)*N*(new_error - prevError[axis])  )/(1+N*Ts);
-
-      prevAxisPID[axis] = newAxisPID[axis];
-      prevError[axis] = new_error;
-      */
-
       
       //Floated PID
       // Proportional term
@@ -511,7 +505,7 @@ void loop(void)
     }
     
     //YAW
-    #define GYRO_I_MAX 250
+    //#define GYRO_I_MAX 250
     float sp = (float)rcCommand[YAW]*1.5;// Set this between 1 and 1.5 to increase speed
     float new_error = sp - newGyroData[YAW];
 
@@ -519,10 +513,9 @@ void loop(void)
     float newPTerm = new_error*new_yaw_kp;
 
     // Integral term
-    //newErrorGyroI_YAW += new_error*new_yaw_ki/8192.0;
     newErrorGyroI_YAW += new_error*new_yaw_ki;
     if (abs(sp) > 50) newErrorGyroI_YAW = 0;
-    float newITerm = constrain(newErrorGyroI_YAW,-GYRO_I_MAX,+GYRO_I_MAX);
+    float newITerm = constrain(newErrorGyroI_YAW,-250,250);
 
     newAxisPID[YAW]  = newPTerm + newITerm;
 
