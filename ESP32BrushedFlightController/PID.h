@@ -3,7 +3,11 @@
 
 #include "Arduino.h"
 #include "Estimates.h"
+#include "Definitions.h"
 
+void resetAttitudePID();
 void calculateAttitudePID(float* setpoints);
+
+extern float newAxisPID[3];
 
 #endif

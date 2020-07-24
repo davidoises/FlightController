@@ -7,88 +7,17 @@
 #include "PID.h"
 #include "Definitions.h"
 
-/*
-#define EEPROM_SIZE sizeof(float)*3
-
-// BMX055 IMU addresses
-#define AM_DEV 0x19//0x18
-#define G_DEV 0x69//0x68
-#define MAG_DEV 0x13////0x10
-
-// HW Pins
-#define PWMA 32
-#define PWMB 33
-#define PWMC 14
-#define PWMD 12
-#define VBAT_ADC 27
-#define IMU_INTERRUPT 25
-#define RF_INTERRUPT 15
-#define LED_PIN 0
-
-// setting PWM properties
-#define FREQ 32000 // 70000 was working well
-#define RESOLUTION 10
-#define ledChannelA 0
-#define ledChannelB 1
-#define ledChannelC 2
-#define ledChannelD 3
-
-// Constants for ESC control
-
-#define MAX_PWM (1<<RESOLUTION)-1
-//#define DUTY_TO_PWM(x) ((float)x)*((float)MAX_PWM)/100.0
-
-// PID sampling
-#define PID_SAMPLING 2800
-*/
-
 // Class objects for data acquisition and sensor fusion
 BMX055 imu = BMX055(AM_DEV, G_DEV, MAG_DEV, USE_MAG_CALIBRATION);
 MS5611 altimeter = MS5611();
 
-/*
-// RF input message structure
-typedef struct received_message {
-  uint8_t hr_stick;
-  uint8_t vr_stick;
-  uint8_t hl_stick;
-  uint8_t vl_stick;
-  uint8_t start;
-  uint8_t select;
-  uint8_t triangle;
-  uint8_t circle;
-  uint8_t cross;
-  uint8_t square;
-  uint8_t l_stick_button;
-  uint8_t r_stick_button;
-  uint8_t l_back_button;
-  uint8_t r_back_button;
-} received_message;
-*/
-
+// Controller data i.e. setpoints for roll, pitch, yaw, throttle and mode selections
 received_message controller_data;
 
-/*
-// RF output message structure
-typedef struct sent_message {
-  float loop_time;
-  float process_time;
-  int16_t roll_rate_setpoint;
-  int16_t pitch_rate_setpoint;
-  int16_t yaw_rate_setpoint;
-  int32_t altitude_setpoint;
-  float roll_rate;
-  float pitch_rate;
-  float yaw_rate;
-  float altitude;
-} sent_message;
-*/
-
+// Telemetry variab;es
 sent_message drone_data;
-
-//uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-
 uint8_t update_telemetry;
+uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 // RF interface variables
 unsigned long prev_rf_time = 0;
@@ -98,17 +27,8 @@ uint8_t eStop = 1;
 uint8_t altHold = 0;
 uint8_t altHoldStart = 0;
 int16_t rcData[4];
-int16_t rcCommand[4];
+float rcCommand[4];
 int16_t initalThrottle = 0;
-
-/*
-enum rc {
-  ROLL,
-  PITCH,
-  YAW,
-  THROTTLE,
-};
-*/
 
 // Accelerometer calibration variables
 uint8_t calibrate_acc = 0;
@@ -131,7 +51,7 @@ uint8_t calibrate_alt;
 
 // PID calculation variables
 unsigned long prev_pid_time = 0;
-float newAxisPID[3];
+float newAxisPID[3] = {0,0,0};
 
 // Motor values
 int16_t motor[4];
@@ -341,39 +261,19 @@ void setup(void)
 void loop(void)
 {
   static uint8_t taskOrder=0;
-
-  uint8_t axis;
-  static float newErrorGyroI_YAW;
-  static float newErrorGyroI[2] = {0,0};
-  static float newDelta1[2],newDelta2[2];
-  static float newLastGyro[2] = {0,0};
-
-  //Just floated PID
-  float new_kp = 12.0*4.1/64.0;//5;//12;
-  float new_ki = 30.0*4.1/(64.0*128.0);//17;//30;
-  float new_kd = 23.0*3.0*4.1/32.0;//52;//23;
-
-  float new_yaw_kp = 4.1*12.0/64.0;//5;//12;
-  float new_yaw_ki = 4.1*45.0/8192.0;
   
+  // only run when the timer sets the flag to start
   if(update_pid)
   {
-    // Simple loop time verification
+    // Processing time calculation - start of timer
     unsigned long begining_time = micros();
     
+    // Loop time calculation: should be exactly PID_SAMPLING
     unsigned long current_time = micros();
     float dt = current_time - prev_pid_time;
     prev_pid_time = current_time;
     
-    
-    if(rcData[THROTTLE] <= 1100)
-    {
-      newErrorGyroI[ROLL] = 0;
-      newErrorGyroI[PITCH] = 0;
-      
-      newErrorGyroI_YAW = 0;
-    }
-
+    // Perform extra measurements on lower frecuencies than the main loop timer
     switch(taskOrder)
     {
       case 0:
@@ -385,6 +285,7 @@ void loop(void)
         break;
     }
 
+    // If Altitude hold was just enabled reset its PID and get sepoint
     if(altHoldStart)
     {
       altHoldStart = 0;
@@ -393,15 +294,6 @@ void loop(void)
       initalThrottle  = rcCommand[THROTTLE];
       
       AltitudeSetpoint = EstAlt;
-      //Serial.println(initalThrottle);
-    }
-
-    if(altHold)
-    {
-      //rcCommand[THROTTLE] = 1590;// Discharged battery
-      //rcCommand[THROTTLE] = 1540;// Full battery battery
-      rcCommand[THROTTLE] = 1565 + BaroPID;
-      //rcCommand[THROTTLE] = initalThrottle + BaroPID;
     }
     
     // Get IMU data
@@ -417,49 +309,23 @@ void loop(void)
     // Get world frame z acceleration for AltHold PID
     acceleration_estimation(dt);
 
-    // PITCH & ROLL
-    for(axis=0;axis<2;axis++) {
-      // ERROR claculation
-      float sp = (float)rcCommand[axis]*0.3/4.1;
-      float new_error = sp - gyroLPF[axis];
-      
-      //Floated PID
-      // Proportional term
-      float newPTerm = new_kp*new_error;
-      
-      // Integral term
-      newErrorGyroI[axis] = constrain(newErrorGyroI[axis]+new_error,-3902,+3902);
-      if (abs(gyroLPF[axis])>156) newErrorGyroI[axis] = 0;
-      float newITerm = newErrorGyroI[axis]*new_ki;
+    // Scale/sensitivity adjustment for attitude setpoints
+    float setpoints[3];
+    setpoints[ROLL] = rcCommand[ROLL]*0.3/4.1;
+    setpoints[PITCH] = rcCommand[PITCH]*0.3/4.1;
+    setpoints[YAW] = rcCommand[YAW]*1.5/4.1;
 
-      // Derivative term
-      float newDelta = gyroLPF[axis] - newLastGyro[axis];
-      newLastGyro[axis] = gyroLPF[axis];
+    // Calculate roll, pitch and yaw pids
+    calculateAttitudePID(setpoints);
 
-      // Rolling average on derivative term
-      float newDTerm = (newDelta1[axis] + newDelta2[axis] + newDelta)/3.0;
-      newDelta2[axis]   = newDelta1[axis];
-      newDelta1[axis]   = newDelta;
-
-      newDTerm = newDTerm*new_kd;
-
-      newAxisPID[axis]  = newPTerm + newITerm - newDTerm;
-      
+    // If altitude hold is on, include its PID on the mixer
+    if(altHold)
+    {
+      //rcCommand[THROTTLE] = 1590;// Discharged battery
+      //rcCommand[THROTTLE] = 1540;// Full battery battery
+      rcCommand[THROTTLE] = 1565 + BaroPID;
+      //rcCommand[THROTTLE] = initalThrottle + BaroPID;
     }
-    
-    //YAW
-    float sp = (float)rcCommand[YAW]*1.5/4.1;// Set this between 1 and 1.5 to increase speed
-    float new_error = sp - gyroLPF[YAW];
-
-    // Proportional term
-    float newPTerm = new_error*new_yaw_kp;
-
-    // Integral term
-    newErrorGyroI_YAW += new_error*new_yaw_ki;
-    if (abs(sp) > 50) newErrorGyroI_YAW = 0;
-    float newITerm = constrain(newErrorGyroI_YAW,-250,250);
-
-    newAxisPID[YAW]  = newPTerm + newITerm;
 
     // Mix table
     motor[0] = rcCommand[THROTTLE] - newAxisPID[ROLL] + newAxisPID[PITCH] + newAxisPID[YAW];
@@ -467,26 +333,32 @@ void loop(void)
     motor[2] = rcCommand[THROTTLE] + newAxisPID[ROLL] - newAxisPID[PITCH] + newAxisPID[YAW];
     motor[3] = rcCommand[THROTTLE] - newAxisPID[ROLL] - newAxisPID[PITCH] - newAxisPID[YAW];
 
-    int16_t maxMotor;
-    uint8_t i;
-
-    maxMotor=motor[0];
-    for(i=1; i< 4; i++)
+    // Get the max PWM to be generated for a single mmotor
+    int16_t maxMotor=motor[0];
+    for(uint8_t i=1; i< 4; i++)
       if (motor[i]>maxMotor) maxMotor=motor[i];
-    for(i=0; i< 4; i++) {
-      if (maxMotor > 2000) // this is a way to still have good gyro corrections if at least one motor reaches its max.
+      
+    for(uint8_t i=0; i< 4; i++) {
+      
+      // if any motor saturates (exceeds 2000 PWM), decrease all 4 motors to maintain their relations and avoid saturation
+      if (maxMotor > 2000)
         motor[i] -= maxMotor - 2000;
       motor[i] = constrain(motor[i], 1000, 2000);
-      if ((rcData[THROTTLE] < 1100))
+      
+      // If not armed just turn off everything
+      if(rcData[THROTTLE] < 1100 || eStop)
+      {
         motor[i] = 1000;
-      if (eStop)
-        motor[i] = 1000;
+        resetAttitudePID();
+      }
     }
 
-    for(i=0; i< 4; i++) {
+    // Map ESC PWMs to brushed motors PWMs
+    for(uint8_t i=0; i< 4; i++) {
       motor[i] = map(motor[i], 1000, 2000, 0, MAX_PWM);
     }
 
+    // Output the actual PWMs to the motors
     ledcWrite(ledChannelA, motor[0]);
     ledcWrite(ledChannelB, motor[1]);
     ledcWrite(ledChannelC, motor[2]);
@@ -497,11 +369,14 @@ void loop(void)
     //Serial.print("\t");
     //Serial.print(uxTaskGetStackHighWaterMark(imu_handle));
     
+    // Clear the flag, to allow next execution signaling
     update_pid = 0;
 
+    // Processing time calculation - end of timer
     float elapsed_time = micros() - begining_time;
 
     // Telemetry update
+    // Send all this through the RF packet
     drone_data.loop_time = dt;
     drone_data.process_time = elapsed_time;
 
@@ -514,7 +389,7 @@ void loop(void)
     drone_data.yaw_rate = gyroLPF[YAW];
     drone_data.altitude = EstAlt;
     
-    // Set this to 0 if not needed to send data
+    // This flag tells RF Loop to send data. Set this to 0 if not needed to send data
     update_telemetry = 1;
   }
 }

@@ -43,7 +43,7 @@ enum rc {
   THROTTLE,
 };
 
-uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+//uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 // RF input message structure
 typedef struct received_message {
