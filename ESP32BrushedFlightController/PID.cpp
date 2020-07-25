@@ -22,6 +22,12 @@ void resetAttitudePID()
 
 void calculateAttitudePID(float* setpoints)
 {
+  new_kp = rate_rollpitch_kp;
+  new_ki = rate_rollpitch_ki;
+  new_kd = rate_rollpitch_kd;
+
+  new_yaw_kp = rate_yaw_kp;
+  new_yaw_ki = rate_yaw_ki;
   
   // PITCH & ROLL
   for(uint8_t axis=0;axis<2;axis++) {
@@ -48,7 +54,8 @@ void calculateAttitudePID(float* setpoints)
 
     newDTerm = newDTerm*new_kd;
 
-    newAxisPID[axis]  = newPTerm + newITerm - newDTerm;
+    //newAxisPID[axis]  = newPTerm + newITerm - newDTerm;
+    attitudePID[axis]  = newPTerm + newITerm - newDTerm;
     
   }
 
@@ -63,5 +70,6 @@ void calculateAttitudePID(float* setpoints)
   if (abs(setpoints[YAW]) > 50) newErrorGyroI_YAW = 0;
   float newITerm = constrain(newErrorGyroI_YAW,-250,250);
 
-  newAxisPID[YAW]  = newPTerm + newITerm;
+  //newAxisPID[YAW]  = newPTerm + newITerm;
+  attitudePID[YAW]  = newPTerm + newITerm;
 }

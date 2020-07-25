@@ -3,6 +3,19 @@
 
 #include "Arduino.h"
 
+// This allows to extern variables when included from other files and to initialize variables when included from the MAIN_EXECUTION file (*.ino file)
+#ifdef MAIN_EXECUTION
+#define EXTERN
+#define _INIT(x) = x
+#define INITIALIZE
+#else
+#define EXTERN extern
+# define _INIT(x)
+#endif
+
+/********* Global Macro definitions *************/
+
+// EEPROM onyl holds 3 float values whcih represent 3 axis acc offsets
 #define EEPROM_SIZE sizeof(float)*3
 
 // BMX055 IMU addresses
@@ -28,14 +41,16 @@
 #define ledChannelC 2
 #define ledChannelD 3
 
-// Constants for ESC control
-
+// Conversion for PWM generation
 #define MAX_PWM (1<<RESOLUTION)-1
 //#define DUTY_TO_PWM(x) ((float)x)*((float)MAX_PWM)/100.0
 
-// PID sampling
+// PID sampling time
 #define PID_SAMPLING 2800
 
+/********* Global Enums and Structs *************/
+
+// General enum for arrays holding tri-axial data
 enum rc {
   ROLL,
   PITCH,
@@ -43,9 +58,7 @@ enum rc {
   THROTTLE,
 };
 
-//uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-
-// RF input message structure
+// RF message structure received from remote controller
 typedef struct received_message {
   uint8_t hr_stick;
   uint8_t vr_stick;
@@ -63,7 +76,7 @@ typedef struct received_message {
   uint8_t r_back_button;
 } received_message;
 
-// RF output message structure
+// RF message structure sent from the drone to telemetry receiver
 typedef struct sent_message {
   float loop_time;
   float process_time;
@@ -76,5 +89,21 @@ typedef struct sent_message {
   float yaw_rate;
   float altitude;
 } sent_message;
+
+/********* Global variables *************/
+// This initializes the array only once. For the rest of the times this file is included, this externs the variable
+#ifdef INITIALIZE
+  uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+#else
+  EXTERN uint8_t broadcastAddress[6];// _INIT({0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF});
+#endif
+
+//PID constants
+EXTERN float rate_rollpitch_kp _INIT(12.0*4.1/64.0);              //5;//12;
+EXTERN float rate_rollpitch_ki _INIT(30.0*4.1/(64.0*128.0));      //17;//30;
+EXTERN float rate_rollpitch_kd _INIT(23.0*3.0*4.1/32.0);          //52;//23;
+
+EXTERN float rate_yaw_kp _INIT(4.1*12.0/64.0);                    //5;//12;
+EXTERN float rate_yaw_ki _INIT(4.1*45.0/8192.0);
 
 #endif
