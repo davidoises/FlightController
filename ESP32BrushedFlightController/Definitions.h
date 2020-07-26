@@ -93,6 +93,8 @@ typedef struct sent_message {
 /********* Global variables *************/
 // This initializes the array only once. For the rest of the times this file is included, this externs the variable
 #ifdef INITIALIZE
+  // This can be changed to the specific MAC address of the telemetry receiver
+  // ESPNOW broadcasts (send to everyone) when address is al 0xFF
   uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 #else
   EXTERN uint8_t broadcastAddress[6];// _INIT({0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF});

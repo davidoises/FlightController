@@ -1,75 +1,62 @@
 #include "PID.h"
 
-//Just floated PID
-float new_kp = 12.0*4.1/64.0;//5;//12;
-float new_ki = 30.0*4.1/(64.0*128.0);//17;//30;
-float new_kd = 23.0*3.0*4.1/32.0;//52;//23;
+// Integration variables, constantly holding the sum of errors
+float yawErrorIntegral;
+float rollpitchErrorIntegral[2];
 
-float new_yaw_kp = 4.1*12.0/64.0;//5;//12;
-float new_yaw_ki = 4.1*45.0/8192.0;
+// Gyro derivative rolling average variables
+float prevDelta[2];
+float prevPrevDelta[2];
+float prevGyro[2] = {0,0};
 
-float newErrorGyroI_YAW;
-float newErrorGyroI[2];
-float newDelta1[2],newDelta2[2];
-float newLastGyro[2] = {0,0};
-
+/*
+ * Attitude PID reinitialization
+ */
 void resetAttitudePID()
 {
-  newErrorGyroI[ROLL] = 0;
-  newErrorGyroI[PITCH] = 0;
-  newErrorGyroI_YAW = 0;
+  rollpitchErrorIntegral[ROLL] = 0;
+  rollpitchErrorIntegral[PITCH] = 0;
+  yawErrorIntegral = 0;
 }
 
+/*
+ * Attitude PID calculation
+ */
 void calculateAttitudePID(float* setpoints)
 {
-  new_kp = rate_rollpitch_kp;
-  new_ki = rate_rollpitch_ki;
-  new_kd = rate_rollpitch_kd;
-
-  new_yaw_kp = rate_yaw_kp;
-  new_yaw_ki = rate_yaw_ki;
   
-  // PITCH & ROLL
+  // PITCH & ROLL PID control laws
   for(uint8_t axis=0;axis<2;axis++) {
+    
     // ERROR claculation
-    float new_error = setpoints[axis] - gyroLPF[axis];
+    float error = setpoints[axis] - gyroLPF[axis];
     
-    //Floated PID
-    // Proportional term
-    float newPTerm = new_kp*new_error;
-    
-    // Integral term
-    newErrorGyroI[axis] = constrain(newErrorGyroI[axis]+new_error,-3902,+3902);
-    if (abs(gyroLPF[axis])>156) newErrorGyroI[axis] = 0;
-    float newITerm = newErrorGyroI[axis]*new_ki;
+    // Error integral (constrained and limited to operate only when -156<Gyro<156 deg/s)
+    rollpitchErrorIntegral[axis] = constrain(rollpitchErrorIntegral[axis] + error, -3902, +3902);
+    if (abs(gyroLPF[axis])>156) rollpitchErrorIntegral[axis] = 0;
 
-    // Derivative term
-    float newDelta = gyroLPF[axis] - newLastGyro[axis];
-    newLastGyro[axis] = gyroLPF[axis];
+    // Differential calculation (discrete derivative of gyro)
+    float delta = gyroLPF[axis] - prevGyro[axis];
+    prevGyro[axis] = gyroLPF[axis];
 
-    // Rolling average on derivative term
-    float newDTerm = (newDelta1[axis] + newDelta2[axis] + newDelta)/3.0;
-    newDelta2[axis]   = newDelta1[axis];
-    newDelta1[axis]   = newDelta;
-
-    newDTerm = newDTerm*new_kd;
-
-    //newAxisPID[axis]  = newPTerm + newITerm - newDTerm;
-    attitudePID[axis]  = newPTerm + newITerm - newDTerm;
+    // Rolling average of 3 samples (similar to LPF) on differential term
+    float deltaLPF = (delta + prevDelta[axis] + prevPrevDelta[axis])/3.0;
+    prevPrevDelta[axis]   = prevDelta[axis];
+    prevDelta[axis]   = delta;
+ 
+    // PID laplace = Kp*(S-G) + Ki*(S-G)/s - Kd*(0-G)*s
+    attitudePID[axis]  = rate_rollpitch_kp * error + rate_rollpitch_ki * rollpitchErrorIntegral[axis] - rate_rollpitch_kd * deltaLPF;
     
   }
 
-  //YAW
-  float new_error = setpoints[YAW] - gyroLPF[YAW];
+  //YAW PI control law
+  // ERROR claculation
+  float error = setpoints[YAW] - gyroLPF[YAW];
 
-  // Proportional term
-  float newPTerm = new_error*new_yaw_kp;
-
-  // Integral term
-  newErrorGyroI_YAW += new_error*new_yaw_ki;
-  if (abs(setpoints[YAW]) > 50) newErrorGyroI_YAW = 0;
-  float newITerm = constrain(newErrorGyroI_YAW,-250,250);
-
-  //newAxisPID[YAW]  = newPTerm + newITerm;
-  attitudePID[YAW]  = newPTerm + newITerm;
+  // Error integral (constrained and limited to operate only when -50<Gyro<50 deg/s)
+  yawErrorIntegral = constrain(yawErrorIntegral + error, -250.0/rate_yaw_ki, 250.0/rate_yaw_ki);
+  if (abs(setpoints[YAW]) > 50) yawErrorIntegral = 0;
+  
+  // PI laplace = Kp*(S-G) + Ki*(S-G)/s
+  attitudePID[YAW]  = rate_yaw_kp * error + rate_yaw_ki * yawErrorIntegral;
 }

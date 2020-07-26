@@ -390,7 +390,7 @@ void loop(void)
     ledcWrite(ledChannelC, motor[2]);
     ledcWrite(ledChannelD, motor[3]);
 
-    // Log some values
+    // Log RTOS stack usage
     //Serial.print(uxTaskGetStackHighWaterMark(blynk_handle));
     //Serial.print("\t");
     //Serial.print(uxTaskGetStackHighWaterMark(imu_handle));
